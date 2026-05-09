@@ -19,11 +19,7 @@ from reportlab.platypus import (
 
 from reportlab.lib import colors
 from reportlab.lib.styles import getSampleStyleSheet
-from reportlab.lib.enums import TA_CENTER
-from reportlab.platypus.paragraph import Paragraph
-from reportlab.lib.styles import ParagraphStyle
 
-# ---------------- PAGE CONFIG ----------------
 st.set_page_config(layout="wide")
 
 # ---------------- LOGO ----------------
@@ -33,13 +29,13 @@ col1, col2, col3 = st.columns([1, 2, 1])
 
 with col2:
     if os.path.exists(logo_path):
-        st.image(logo_path, width=260)
+        st.image(logo_path, width=250)
 
 st.title("Power Curve Analytics Report")
 
 # ---------------- CONSTANTS ----------------
 BIN_SIZE = 0.5
-REF_FILE = "./India site Standard & Theoretical PC data 1234.xlsx"
+REF_FILE = "India site Standard & Theoretical PC data 1234.xlsx"
 
 # ---------------- SIDEBAR ----------------
 uploaded_file = st.sidebar.file_uploader(
@@ -48,10 +44,10 @@ uploaded_file = st.sidebar.file_uploader(
 )
 
 if uploaded_file is None:
-    st.warning("Upload SCADA CSV File")
+    st.warning("Upload SCADA file")
     st.stop()
 
-# ---------------- LOAD SCADA ----------------
+# ---------------- LOAD DATA ----------------
 @st.cache_data
 def load_scada(file):
 
@@ -59,17 +55,21 @@ def load_scada(file):
 
     df.columns = df.columns.str.strip()
 
-    # AUTO DETECT COLUMNS
-    wind_col = [c for c in df.columns if "wind" in c.lower()][0]
+    wind_col = [
+        c for c in df.columns
+        if "wind" in c.lower()
+    ][0]
 
     power_col = [
         c for c in df.columns
         if "power" in c.lower() or "active" in c.lower()
     ][0]
 
-    time_col = [c for c in df.columns if "time" in c.lower()][0]
+    time_col = [
+        c for c in df.columns
+        if "time" in c.lower()
+    ][0]
 
-    # TYPE CONVERSION
     df[time_col] = pd.to_datetime(
         df[time_col],
         errors="coerce"
@@ -107,6 +107,7 @@ date_range = st.sidebar.date_input(
     max_value=max_date
 )
 
+# HANDLE SINGLE DATE
 if len(date_range) == 1:
 
     start = pd.to_datetime(date_range[0])
@@ -129,13 +130,13 @@ if filtered_df.empty:
     st.error("No data available for selected date range")
     st.stop()
 
-st.success(f"Filtered Data Points: {len(filtered_df)}")
+st.info(f"Total Data Points: {len(filtered_df)}")
 
 st.markdown(
     f"""
     <div style="
         background-color:#f2f2f2;
-        padding:12px;
+        padding:10px;
         border-radius:10px;
         font-size:18px;
         font-weight:bold;">
@@ -154,13 +155,11 @@ def load_reference():
 
     ref = pd.read_excel(REF_FILE)
 
-    # KEEP FIRST 2 COLUMNS ONLY
+    # TAKE FIRST 2 COLUMNS ONLY
     ref = ref.iloc[:, :2]
 
-    # RENAME
     ref.columns = ["WindBin", "RefPower"]
 
-    # CONVERT NUMERIC
     ref["WindBin"] = pd.to_numeric(
         ref["WindBin"],
         errors="coerce"
@@ -178,7 +177,7 @@ def load_reference():
 
 ref_curve = load_reference()
 
-# ---------------- PROCESS TURBINE ----------------
+# ---------------- PROCESS ----------------
 def process_turbine(t):
 
     d = filtered_df[
@@ -197,10 +196,10 @@ def process_turbine(t):
         (d[power_col] > 0)
     ].copy()
 
-    if len(df_curve) < 10:
+    if len(df_curve) < 20:
         return None
 
-    # WIND BINNING
+    # WIND BIN
     df_curve["WindBin"] = (
         np.round(df_curve[wind_col] / BIN_SIZE) * BIN_SIZE
     )
@@ -214,7 +213,7 @@ def process_turbine(t):
 
     actual.columns = ["WindBin", "AvgPower"]
 
-    # MERGE WITH REFERENCE
+    # MERGE
     merged = ref_curve.merge(
         actual,
         on="WindBin",
@@ -223,8 +222,8 @@ def process_turbine(t):
 
     valid = merged["AvgPower"].notna()
 
-    # SMOOTH CURVE
-    if valid.sum() >= 7:
+    # SMOOTHING
+    if valid.sum() > 5:
 
         try:
 
@@ -253,7 +252,7 @@ def process_turbine(t):
 
     return df_scatter, merged, dev, availability
 
-# ---------------- COMMENTS ----------------
+# ---------------- COMMENT ----------------
 def comment(dev):
 
     if dev < -10:
@@ -277,17 +276,17 @@ def plot_graph(df_scatter, merged, t):
     n = len(df_scatter)
 
     if n < 200:
-        size, op = 8, 0.9
+        size, op = 7, 0.9
 
     elif n < 1000:
         size, op = 5, 0.6
 
     else:
-        size, op = 3, 0.35
+        size, op = 3, 0.3
 
     fig = go.Figure()
 
-    # SCADA
+    # SCATTER
     fig.add_trace(go.Scatter(
         x=df_scatter[wind_col],
         y=df_scatter[power_col],
@@ -297,7 +296,7 @@ def plot_graph(df_scatter, merged, t):
             opacity=op,
             color='lightblue'
         ),
-        name='SCADA Data'
+        name="SCADA Data"
     ))
 
     # ACTUAL CURVE
@@ -307,10 +306,10 @@ def plot_graph(df_scatter, merged, t):
         mode='lines+markers',
         line=dict(
             color='green',
-            width=4
+            width=3
         ),
-        marker=dict(size=8),
-        name='Actual Curve'
+        marker=dict(size=7),
+        name="Actual Curve"
     ))
 
     # REFERENCE CURVE
@@ -320,34 +319,30 @@ def plot_graph(df_scatter, merged, t):
         mode='lines',
         line=dict(
             color='red',
-            width=4,
+            width=3,
             dash='dash'
         ),
-        name='Reference Curve'
+        name="Reference Curve"
     ))
 
     fig.update_layout(
 
-        title={
-            'text': f'Power Curve Analysis - {t}',
-            'x': 0.5
-        },
+        title=f"Power Curve Analysis - {t}",
 
-        xaxis_title='Wind Speed (m/s)',
+        xaxis_title="Wind Speed (m/s)",
 
-        yaxis_title='Power Output (kW)',
+        yaxis_title="Power Output (kW)",
 
-        height=650,
+        height=600,
 
-        template='plotly_white',
+        template="plotly_white",
 
         legend=dict(
-            orientation='h',
-            yanchor='bottom',
+            orientation="h",
+            yanchor="bottom",
             y=1.02,
-            xanchor='center',
-            x=0.5,
-            font=dict(size=14)
+            xanchor="center",
+            x=0.5
         )
     )
 
@@ -381,29 +376,26 @@ for t in turbines:
         f"""
         <div style="
             background-color:{color};
-            padding:14px;
+            padding:12px;
             border-radius:10px;
             color:white;
             font-size:18px;
             font-weight:bold;
-            margin-bottom:30px;">
+            margin-bottom:25px;">
 
-            Turbine : {t}
-            <br><br>
-
-            Comment : {comm}
+            Comment: {comm}
             <br>
 
-            Deviation : {round(dev,2)}%
+            Deviation: {round(dev,2)}%
             <br>
 
-            Availability : {round(avail,1)}%
+            Availability: {round(avail,1)}%
         </div>
         """,
         unsafe_allow_html=True
     )
 
-    # SAVE GRAPH IMAGE
+    # ---------- FIXED DOWNLOAD LOGIC ----------
     try:
 
         img_bytes = fig.to_image(
@@ -424,13 +416,14 @@ for t in turbines:
 
     except Exception as e:
 
-        st.warning(f"Graph export failed: {e}")
+        st.warning(
+            f"Graph image export issue: {e}"
+        )
 
     results.append([
         t,
         round(dev, 2),
-        round(avail, 1),
-        comm
+        round(avail, 1)
     ])
 
 # ---------------- TABLE ----------------
@@ -440,44 +433,14 @@ df_res = pd.DataFrame(
     results,
     columns=[
         "Turbine",
-        "Deviation (%)",
-        "Availability (%)",
-        "Comment"
+        "Deviation",
+        "Availability"
     ]
 )
 
-df_res = df_res.sort_values(
-    by="Deviation (%)",
-    ascending=False
-)
-
-# COLOR FUNCTION
-def color_comment(val):
-
-    if "Severe" in val:
-        return 'background-color:#ff0000;color:white'
-
-    elif "Underperformance" in val:
-        return 'background-color:#ff9900;color:white'
-
-    elif "High" in val:
-        return 'background-color:#009900;color:white'
-
-    elif "Slight" in val:
-        return 'background-color:#66cc66;color:black'
-
-    else:
-        return 'background-color:#0066cc;color:white'
-
-styled_df = df_res.style.applymap(
-    color_comment,
-    subset=["Comment"]
-)
-
 st.dataframe(
-    styled_df,
-    use_container_width=True,
-    height=500
+    df_res,
+    use_container_width=True
 )
 
 # ---------------- PDF GENERATION ----------------
@@ -495,12 +458,6 @@ def create_pdf():
 
     styles = getSampleStyleSheet()
 
-    center_style = ParagraphStyle(
-        name='Center',
-        parent=styles['Heading1'],
-        alignment=TA_CENTER
-    )
-
     elements = []
 
     # LOGO
@@ -516,19 +473,19 @@ def create_pdf():
 
         elements.append(Spacer(1, 20))
 
-    # TITLE
+    # HEADER
     elements.append(
         Paragraph(
             "Power Curve Analytics Report",
-            center_style
+            styles["Title"]
         )
     )
 
-    elements.append(Spacer(1, 20))
+    elements.append(Spacer(1, 10))
 
     elements.append(
         Paragraph(
-            f"<b>Date Range:</b> "
+            f"Date Range: "
             f"{start.strftime('%Y-%m-%d')} "
             f"to "
             f"{(end - pd.Timedelta(days=1)).strftime('%Y-%m-%d')}",
@@ -538,7 +495,7 @@ def create_pdf():
 
     elements.append(
         Paragraph(
-            f"<b>Total Data Points:</b> {len(filtered_df)}",
+            f"Total Data Points: {len(filtered_df)}",
             styles["Normal"]
         )
     )
@@ -550,99 +507,83 @@ def create_pdf():
 
         elements.append(
             Paragraph(
-                f"<b>Turbine:</b> {t}",
+                f"Turbine: {t}",
                 styles["Heading2"]
             )
         )
 
-        elements.append(Spacer(1, 10))
-
         elements.append(
             Paragraph(
-                f"<b>Deviation:</b> {round(dev,2)}%",
+                f"Deviation: {round(dev,2)}%",
                 styles["Normal"]
             )
         )
 
         elements.append(
             Paragraph(
-                f"<b>Availability:</b> {round(avail,1)}%",
+                f"Availability: {round(avail,1)}%",
                 styles["Normal"]
             )
         )
 
-        elements.append(Spacer(1, 8))
+        elements.append(Spacer(1, 5))
 
-        comment_style = ParagraphStyle(
-            'comment_style',
-            backColor=color,
-            textColor=colors.white,
-            alignment=TA_CENTER,
-            fontSize=14,
-            leading=18,
-            borderPadding=10
+        # COMMENT BOX
+        comment_table = Table(
+            [[f"Comment: {comm}"]],
+            colWidths=[450]
         )
 
-        elements.append(
-            Paragraph(
-                f"<b>{comm}</b>",
-                comment_style
-            )
-        )
+        comment_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, -1), color),
+            ('TEXTCOLOR', (0, 0), (-1, -1), colors.white),
+            ('FONTNAME', (0, 0), (-1, -1), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, -1), 12),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('BOTTOMPADDING', (0, 0), (-1, -1), 10),
+            ('TOPPADDING', (0, 0), (-1, -1), 10),
+        ]))
+
+        elements.append(comment_table)
 
         elements.append(Spacer(1, 15))
 
+        # GRAPH IMAGE
         img_file = io.BytesIO(img)
 
         elements.append(
             Image(
                 img_file,
-                width=520,
-                height=300
+                width=500,
+                height=280
             )
         )
 
-        elements.append(Spacer(1, 20))
+        elements.append(Spacer(1, 25))
 
         elements.append(PageBreak())
 
     # SUMMARY TABLE
     elements.append(
         Paragraph(
-            "Turbine Ranking Summary",
+            "Turbine Ranking",
             styles["Heading2"]
         )
     )
 
-    elements.append(Spacer(1, 15))
+    elements.append(Spacer(1, 10))
 
-    table_data = [[
-        "Turbine",
-        "Deviation (%)",
-        "Availability (%)",
-        "Comment"
-    ]]
-
-    for row in results:
-        table_data.append(row)
+    table_data = [
+        ["Turbine", "Deviation", "Availability"]
+    ] + results
 
     table = Table(table_data)
 
     table.setStyle(TableStyle([
-
-        ('BACKGROUND', (0, 0), (-1, 0), colors.darkblue),
-
+        ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
         ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
-
         ('GRID', (0, 0), (-1, -1), 1, colors.black),
-
-        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-
-        ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-
-        ('BACKGROUND', (0, 1), (-1, -1), colors.whitesmoke),
-
-        ('ALIGN', (0, 0), (-1, -1), 'CENTER')
+        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold')
     ]))
 
     elements.append(table)
@@ -669,3 +610,7 @@ try:
 except Exception as e:
 
     st.error(f"PDF Generation Error: {e}")
+
+    st.info(
+        "Add this in requirements.txt:\n\nkaleido"
+    )
