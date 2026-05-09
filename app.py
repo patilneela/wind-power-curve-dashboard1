@@ -23,7 +23,7 @@ from reportlab.lib.styles import getSampleStyleSheet
 st.set_page_config(layout="wide")
 
 # ---------------- LOGO ----------------
-logo_path = "Envision.png"
+logo_path = os.path.join(os.path.dirname(__file__), "Envision.png")
 
 col1, col2, col3 = st.columns([1, 2, 1])
 
@@ -62,7 +62,8 @@ def load_scada(file):
 
     power_col = [
         c for c in df.columns
-        if "power" in c.lower() or "active" in c.lower()
+        if "power" in c.lower()
+        or "active" in c.lower()
     ][0]
 
     time_col = [
@@ -85,9 +86,7 @@ def load_scada(file):
         errors="coerce"
     )
 
-    df = df.dropna(
-        subset=[time_col, wind_col, power_col]
-    )
+    df = df.dropna()
 
     df["Name"] = df["Name"].astype(str)
 
@@ -97,56 +96,29 @@ def load_scada(file):
 df, wind_col, power_col, time_col = load_scada(uploaded_file)
 
 # ---------------- DATE FILTER ----------------
-min_date = df[time_col].min().date()
-max_date = df[time_col].max().date()
+min_date = df[time_col].min()
+max_date = df[time_col].max()
 
 date_range = st.sidebar.date_input(
     "Select Date Range",
-    value=(max_date - timedelta(days=15), max_date),
-    min_value=min_date,
-    max_value=max_date
+    [max_date - timedelta(days=15), max_date]
 )
 
-# HANDLE SINGLE DATE
-if len(date_range) == 1:
+start = pd.to_datetime(date_range[0])
 
-    start = pd.to_datetime(date_range[0])
+end = pd.to_datetime(
+    date_range[1]
+) + pd.Timedelta(days=1)
 
-    end = start + pd.Timedelta(days=1)
-
-else:
-
-    start = pd.to_datetime(date_range[0])
-
-    end = pd.to_datetime(date_range[1]) + pd.Timedelta(days=1)
-
-# FILTER DATA
-filtered_df = df[
+df = df[
     (df[time_col] >= start) &
     (df[time_col] < end)
-].copy()
+]
 
-if filtered_df.empty:
-    st.error("No data available for selected date range")
-    st.stop()
-
-st.info(f"Total Data Points: {len(filtered_df)}")
+st.info(f"Total Data Points: {len(df)}")
 
 st.markdown(
-    f"""
-    <div style="
-        background-color:#f2f2f2;
-        padding:10px;
-        border-radius:10px;
-        font-size:18px;
-        font-weight:bold;">
-        Date Range:
-        {start.strftime('%Y-%m-%d')}
-        →
-        {(end - pd.Timedelta(days=1)).strftime('%Y-%m-%d')}
-    </div>
-    """,
-    unsafe_allow_html=True
+    f"**Date Range:** {start} → {end}"
 )
 
 # ---------------- LOAD REFERENCE ----------------
@@ -155,10 +127,13 @@ def load_reference():
 
     ref = pd.read_excel(REF_FILE)
 
-    # TAKE FIRST 2 COLUMNS ONLY
+    # FIX COLUMN ISSUE
     ref = ref.iloc[:, :2]
 
-    ref.columns = ["WindBin", "RefPower"]
+    ref.columns = [
+        "WindBin",
+        "RefPower"
+    ]
 
     ref["WindBin"] = pd.to_numeric(
         ref["WindBin"],
@@ -180,29 +155,21 @@ ref_curve = load_reference()
 # ---------------- PROCESS ----------------
 def process_turbine(t):
 
-    d = filtered_df[
-        filtered_df["Name"] == t
-    ].copy()
+    d = df[df["Name"] == t]
 
-    if d.empty:
-        return None
-
-    # SCATTER DATA
     df_scatter = d.copy()
 
-    # FILTERED CURVE DATA
     df_curve = d[
         (d[wind_col] >= 3) &
         (d[power_col] > 0)
-    ].copy()
+    ]
 
     if len(df_curve) < 20:
         return None
 
-    # WIND BIN
     df_curve["WindBin"] = (
-        np.round(df_curve[wind_col] / BIN_SIZE) * BIN_SIZE
-    )
+        df_curve[wind_col] / BIN_SIZE
+    ).round() * BIN_SIZE
 
     actual = (
         df_curve
@@ -211,9 +178,11 @@ def process_turbine(t):
         .reset_index()
     )
 
-    actual.columns = ["WindBin", "AvgPower"]
+    actual.columns = [
+        "WindBin",
+        "AvgPower"
+    ]
 
-    # MERGE
     merged = ref_curve.merge(
         actual,
         on="WindBin",
@@ -222,12 +191,14 @@ def process_turbine(t):
 
     valid = merged["AvgPower"].notna()
 
-    # SMOOTHING
+    # SMOOTH CURVE
     if valid.sum() > 5:
 
         try:
-
-            merged.loc[valid, "AvgPower"] = savgol_filter(
+            merged.loc[
+                valid,
+                "AvgPower"
+            ] = savgol_filter(
                 merged.loc[valid, "AvgPower"],
                 5,
                 2
@@ -236,42 +207,61 @@ def process_turbine(t):
         except:
             pass
 
-    # DEVIATION
+    # REMOVE ZERO REFERENCE VALUES
+    merged = merged[
+        merged["RefPower"] > 0
+    ]
+
     merged["Deviation_%"] = (
         (
-            merged["AvgPower"] - merged["RefPower"]
-        ) / merged["RefPower"]
+            merged["AvgPower"] -
+            merged["RefPower"]
+        )
+        /
+        merged["RefPower"]
     ) * 100
 
-    dev = merged["Deviation_%"].mean(skipna=True)
+    dev = merged["Deviation_%"].mean()
 
-    # AVAILABILITY
+    # FIX NAN
+    if pd.isna(dev):
+        dev = 0
+
     availability = (
         len(df_curve) / len(d)
     ) * 100
 
-    return df_scatter, merged, dev, availability
+    return (
+        df_scatter,
+        merged,
+        dev,
+        availability
+    )
 
 # ---------------- COMMENT ----------------
 def comment(dev):
 
     if dev < -10:
-        return "Severe underperformance", "#ff0000"
+        return "Severe underperformance"
 
     elif dev < -2:
-        return "Underperformance", "#ff9900"
+        return "Underperformance"
 
     elif dev > 8:
-        return "High overperformance", "#009900"
+        return "High overperformance"
 
     elif dev > 2:
-        return "Slight overperformance", "#66cc66"
+        return "Slight overperformance"
 
     else:
-        return "Normal", "#0066cc"
+        return "Normal"
 
 # ---------------- GRAPH ----------------
-def plot_graph(df_scatter, merged, t):
+def plot_graph(
+    df_scatter,
+    merged,
+    t
+):
 
     n = len(df_scatter)
 
@@ -287,63 +277,65 @@ def plot_graph(df_scatter, merged, t):
     fig = go.Figure()
 
     # SCATTER
-    fig.add_trace(go.Scatter(
-        x=df_scatter[wind_col],
-        y=df_scatter[power_col],
-        mode='markers',
-        marker=dict(
-            size=size,
-            opacity=op,
-            color='lightblue'
-        ),
-        name="SCADA Data"
-    ))
+    fig.add_trace(
+        go.Scatter(
+            x=df_scatter[wind_col],
+            y=df_scatter[power_col],
+            mode='markers',
+            marker=dict(
+                size=size,
+                opacity=op
+            ),
+            name=f"Scatter ({n})"
+        )
+    )
 
-    # ACTUAL CURVE
-    fig.add_trace(go.Scatter(
-        x=merged["WindBin"],
-        y=merged["AvgPower"],
-        mode='lines+markers',
-        line=dict(
-            color='green',
-            width=3
-        ),
-        marker=dict(size=7),
-        name="Actual Curve"
-    ))
+    # ACTUAL
+    fig.add_trace(
+        go.Scatter(
+            x=merged["WindBin"],
+            y=merged["AvgPower"],
+            mode='lines+markers',
+            line=dict(
+                color='green',
+                width=3
+            ),
+            name="Actual"
+        )
+    )
 
-    # REFERENCE CURVE
-    fig.add_trace(go.Scatter(
-        x=merged["WindBin"],
-        y=merged["RefPower"],
-        mode='lines',
-        line=dict(
-            color='red',
-            width=3,
-            dash='dash'
-        ),
-        name="Reference Curve"
-    ))
+    # REFERENCE
+    fig.add_trace(
+        go.Scatter(
+            x=merged["WindBin"],
+            y=merged["RefPower"],
+            mode='lines',
+            line=dict(
+                dash='dash',
+                color='red',
+                width=3
+            ),
+            name="Reference"
+        )
+    )
 
     fig.update_layout(
 
-        title=f"Power Curve Analysis - {t}",
+        title=f"Power Curve - {t}",
 
-        xaxis_title="Wind Speed (m/s)",
+        xaxis_title="Wind Speed",
 
-        yaxis_title="Power Output (kW)",
+        yaxis_title="Power",
 
         height=600,
 
-        template="plotly_white",
-
         legend=dict(
             orientation="h",
-            yanchor="bottom",
             y=1.02,
-            xanchor="center",
-            x=0.5
-        )
+            x=0.3
+        ),
+
+        template="plotly_white"
     )
 
     return fig
@@ -352,57 +344,44 @@ def plot_graph(df_scatter, merged, t):
 results = []
 images = []
 
-turbines = sorted(filtered_df["Name"].unique())
-
-for t in turbines:
+for t in df["Name"].unique():
 
     res = process_turbine(t)
 
-    if res is None:
+    if not res:
         continue
 
     df_scatter, merged, dev, avail = res
 
-    fig = plot_graph(df_scatter, merged, t)
+    fig = plot_graph(
+        df_scatter,
+        merged,
+        t
+    )
 
     st.plotly_chart(
         fig,
         use_container_width=True
     )
 
-    comm, color = comment(dev)
-
-    st.markdown(
-        f"""
-        <div style="
-            background-color:{color};
-            padding:12px;
-            border-radius:10px;
-            color:white;
-            font-size:18px;
-            font-weight:bold;
-            margin-bottom:25px;">
-
-            Comment: {comm}
-            <br>
-
-            Deviation: {round(dev,2)}%
-            <br>
-
-            Availability: {round(avail,1)}%
-        </div>
-        """,
-        unsafe_allow_html=True
+    st.write(
+        f"Comment: {comment(dev)}"
     )
 
-    # ---------- FIXED DOWNLOAD LOGIC ----------
+    st.write(
+        f"Deviation: {round(dev,2)}%"
+    )
+
+    st.write(
+        f"Availability: {round(avail,1)}%"
+    )
+
+    # SAFE IMAGE EXPORT
     try:
 
         img_bytes = fig.to_image(
             format="png",
-            width=1400,
-            height=700,
-            scale=2
+            engine="kaleido"
         )
 
         images.append((
@@ -410,14 +389,19 @@ for t in turbines:
             img_bytes,
             dev,
             avail,
-            comm,
-            color
+            comment(dev)
         ))
 
     except Exception as e:
 
         st.warning(
-            f"Graph image export issue: {e}"
+            f"""
+Graph image export issue:
+
+{e}
+
+PDF will still download without graphs.
+            """
         )
 
     results.append([
@@ -448,30 +432,11 @@ def create_pdf():
 
     buffer = io.BytesIO()
 
-    doc = SimpleDocTemplate(
-        buffer,
-        rightMargin=20,
-        leftMargin=20,
-        topMargin=20,
-        bottomMargin=20
-    )
+    doc = SimpleDocTemplate(buffer)
 
     styles = getSampleStyleSheet()
 
     elements = []
-
-    # LOGO
-    if os.path.exists(logo_path):
-
-        elements.append(
-            Image(
-                logo_path,
-                width=180,
-                height=60
-            )
-        )
-
-        elements.append(Spacer(1, 20))
 
     # HEADER
     elements.append(
@@ -481,29 +446,32 @@ def create_pdf():
         )
     )
 
-    elements.append(Spacer(1, 10))
+    elements.append(
+        Spacer(1, 10)
+    )
 
     elements.append(
         Paragraph(
-            f"Date Range: "
-            f"{start.strftime('%Y-%m-%d')} "
-            f"to "
-            f"{(end - pd.Timedelta(days=1)).strftime('%Y-%m-%d')}",
+            f"Date Range: {start} to {end}",
             styles["Normal"]
         )
     )
 
     elements.append(
         Paragraph(
-            f"Total Data Points: {len(filtered_df)}",
+            f"Total Data Points: {len(df)}",
             styles["Normal"]
         )
     )
 
-    elements.append(Spacer(1, 20))
+    elements.append(
+        Spacer(1, 20)
+    )
 
     # TURBINE PAGES
-    for t, img, dev, avail, comm, color in images:
+    for item in images:
+
+        t, img, dev, avail, comm = item
 
         elements.append(
             Paragraph(
@@ -526,44 +494,82 @@ def create_pdf():
             )
         )
 
-        elements.append(Spacer(1, 5))
-
-        # COMMENT BOX
-        comment_table = Table(
-            [[f"Comment: {comm}"]],
-            colWidths=[450]
-        )
-
-        comment_table.setStyle(TableStyle([
-            ('BACKGROUND', (0, 0), (-1, -1), color),
-            ('TEXTCOLOR', (0, 0), (-1, -1), colors.white),
-            ('FONTNAME', (0, 0), (-1, -1), 'Helvetica-Bold'),
-            ('FONTSIZE', (0, 0), (-1, -1), 12),
-            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-            ('BOTTOMPADDING', (0, 0), (-1, -1), 10),
-            ('TOPPADDING', (0, 0), (-1, -1), 10),
-        ]))
-
-        elements.append(comment_table)
-
-        elements.append(Spacer(1, 15))
-
-        # GRAPH IMAGE
-        img_file = io.BytesIO(img)
-
         elements.append(
-            Image(
-                img_file,
-                width=500,
-                height=280
+            Paragraph(
+                f"Comment: {comm}",
+                styles["Normal"]
             )
         )
 
-        elements.append(Spacer(1, 25))
+        elements.append(
+            Spacer(1, 10)
+        )
 
-        elements.append(PageBreak())
+        # SAFE IMAGE ADD
+        try:
 
-    # SUMMARY TABLE
+            img_file = io.BytesIO(img)
+
+            elements.append(
+                Image(
+                    img_file,
+                    width=450,
+                    height=250
+                )
+            )
+
+        except:
+
+            elements.append(
+                Paragraph(
+                    "Graph image not available",
+                    styles["Normal"]
+                )
+            )
+
+        elements.append(
+            PageBreak()
+        )
+
+    # TABLE
+    table_data = [[
+        "Turbine",
+        "Deviation",
+        "Availability"
+    ]]
+
+    for row in results:
+        table_data.append(row)
+
+    table = Table(table_data)
+
+    table.setStyle(
+        TableStyle([
+
+            (
+                'BACKGROUND',
+                (0, 0),
+                (-1, 0),
+                colors.grey
+            ),
+
+            (
+                'TEXTCOLOR',
+                (0, 0),
+                (-1, 0),
+                colors.white
+            ),
+
+            (
+                'GRID',
+                (0, 0),
+                (-1, -1),
+                1,
+                colors.black
+            )
+        ])
+    )
+
     elements.append(
         Paragraph(
             "Turbine Ranking",
@@ -571,24 +577,12 @@ def create_pdf():
         )
     )
 
-    elements.append(Spacer(1, 10))
-
-    table_data = [
-        ["Turbine", "Deviation", "Availability"]
-    ] + results
-
-    table = Table(table_data)
-
-    table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
-        ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
-        ('GRID', (0, 0), (-1, -1), 1, colors.black),
-        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold')
-    ]))
+    elements.append(
+        Spacer(1, 10)
+    )
 
     elements.append(table)
 
-    # BUILD PDF
     doc.build(elements)
 
     buffer.seek(0)
@@ -609,8 +603,6 @@ try:
 
 except Exception as e:
 
-    st.error(f"PDF Generation Error: {e}")
-
-    st.info(
-        "Add this in requirements.txt:\n\nkaleido"
+    st.error(
+        f"PDF Generation Error: {e}"
     )
