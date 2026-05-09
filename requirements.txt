@@ -4,5 +4,6 @@ numpy
 plotly
 scipy
 openpyxl
+reportlab
 kaleido
 python-docx
