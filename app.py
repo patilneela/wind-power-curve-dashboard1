@@ -5,14 +5,11 @@ import plotly.graph_objects as go
 from scipy.signal import savgol_filter
 from datetime import timedelta
 import os
-import zipfile
 import io
 
-# PDF SUPPORT
 from reportlab.lib.pagesizes import landscape, A4
 from reportlab.pdfgen import canvas
 from reportlab.lib.utils import ImageReader
-from reportlab.lib import colors
 
 st.set_page_config(layout="wide")
 
@@ -25,7 +22,7 @@ except:
 
 # LOGO
 logo_path = os.path.join(os.path.dirname(__file__), "Envision.png")
-col1, col2, col3 = st.columns([1,2,1])
+col1, col2, col3 = st.columns([1, 2, 1])
 with col2:
     if os.path.exists(logo_path):
         st.image(logo_path, width=300)
@@ -34,20 +31,19 @@ with col2:
 st.title("Power Curve Analytics Report")
 
 # SITE CAPACITY
-SITE_CAPACITY = {site:3.3 for site in [
-"CIP Hatalageri","JSW Tuljapur","Blupine Sagapara","Kalavad GJ","Kalavad_PH2",
-"AMP_Energy","Wanki","CleanMax Motadevaliya","Ayana Amerli","Mahadev PH1",
-"Blupine-I, Ambada-GJ","ACME Shapar","FP_Kudligi","Sprng TN",
-"Otha Pithalpur-GJ","AMGEPL,Kurnool AP","ReNew1_Gadag","partner Ottapidaum",
-"Cleanmax SANATHALI","Cleanmax Babra","RenfraEnergy Trichy","RENEW-03 Sholapur",
-"Renew2 Chandwad","ReNew-4 Patoda","Clean max Jagalur","Sembcorp Tuticorin",
-"Renew-4 Kudligi","Renew Otha","Cleanmax Honavad","Blueleaf Agar",
-"JSW_Sandur","India_Hero_Doni"
+SITE_CAPACITY = {site: 3.3 for site in [
+    "CIP Hatalageri","JSW Tuljapur","Blupine Sagapara","Kalavad GJ","Kalavad_PH2",
+    "AMP_Energy","Wanki","CleanMax Motadevaliya","Ayana Amerli","Mahadev PH1",
+    "Blupine-I, Ambada-GJ","ACME Shapar","FP_Kudligi","Sprng TN",
+    "Otha Pithalpur-GJ","AMGEPL,Kurnool AP","ReNew1_Gadag","partner Ottapidaum",
+    "Cleanmax SANATHALI","Cleanmax Babra","RenfraEnergy Trichy","RENEW-03 Sholapur",
+    "Renew2 Chandwad","ReNew-4 Patoda","Clean max Jagalur","Sembcorp Tuticorin",
+    "Renew-4 Kudligi","Renew Otha","Cleanmax Honavad","Blueleaf Agar",
+    "JSW_Sandur","India_Hero_Doni"
 ]}
 
 REF_FILE = "India site Standard & Theoretical PC data 1234.xlsx"
 BIN_SIZE = 0.5
-RATED_POWER = 3400.0
 
 # SIDEBAR
 st.sidebar.subheader("Upload SCADA File")
@@ -58,11 +54,7 @@ if uploaded_file is None:
     st.stop()
 
 site = st.sidebar.selectbox("Select Site", list(SITE_CAPACITY.keys()))
-
-mode = st.sidebar.radio(
-    "Select View",
-    ["Single Turbine", "Compare Turbines", "Show All Turbines"]
-)
+mode = st.sidebar.radio("Select View", ["Single Turbine", "Compare Turbines", "Show All Turbines"])
 
 # LOAD SCADA
 @st.cache_data
@@ -78,7 +70,7 @@ def load_scada(file):
     df[wind_col] = pd.to_numeric(df[wind_col], errors="coerce")
     df[power_col] = pd.to_numeric(df[power_col], errors="coerce")
 
-    df = df.dropna(subset=[wind_col,power_col,time_col])
+    df = df.dropna(subset=[wind_col, power_col, time_col])
     df["Name"] = df["Name"].astype(str).str.strip()
 
     return df, wind_col, power_col, time_col
@@ -88,9 +80,7 @@ df, wind_col, power_col, time_col = load_scada(uploaded_file)
 # DATE FILTER
 st.sidebar.markdown("Select Date Range")
 
-min_date = df[time_col].min()
 max_date = df[time_col].max()
-
 start_date = st.sidebar.date_input("Start Date", value=max_date - timedelta(days=15))
 end_date = st.sidebar.date_input("End Date", value=max_date)
 
@@ -114,19 +104,19 @@ def load_reference(site):
 
     for r in range(ref_raw.shape[0]):
         for c in range(ref_raw.shape[1]):
-            cell = str(ref_raw.iloc[r,c])
+            cell = str(ref_raw.iloc[r, c])
             if site.lower() in cell.lower():
-                ref = ref_raw.iloc[r+2:r+60,[c-1,c+3]].copy()
-                ref.columns=["WindSpeed","RefPower"]
+                ref = ref_raw.iloc[r+2:r+60, [c-1, c+3]].copy()
+                ref.columns = ["WindSpeed", "RefPower"]
                 ref = ref.dropna()
 
-                ref["WindSpeed"]=pd.to_numeric(ref["WindSpeed"], errors="coerce")
-                ref["RefPower"]=pd.to_numeric(ref["RefPower"], errors="coerce")
+                ref["WindSpeed"] = pd.to_numeric(ref["WindSpeed"], errors="coerce")
+                ref["RefPower"] = pd.to_numeric(ref["RefPower"], errors="coerce")
 
-                wind_bins = np.arange(4,10,BIN_SIZE)
+                wind_bins = np.arange(4, 10, BIN_SIZE)
                 ref_interp = np.interp(wind_bins, ref["WindSpeed"], ref["RefPower"])
 
-                return pd.DataFrame({"WindBin":wind_bins,"RefPower":ref_interp})
+                return pd.DataFrame({"WindBin": wind_bins, "RefPower": ref_interp})
 
     st.error("Site not found")
     st.stop()
@@ -135,24 +125,24 @@ ref_curve = load_reference(site)
 
 # PROCESS
 def process_turbine(t):
-    df_t = df[df["Name"]==t].copy()
-    df_t = df_t[(df_t[wind_col]>=3)&(df_t[wind_col]<=25)&(df_t[power_col]>0)]
+    df_t = df[df["Name"] == t].copy()
+    df_t = df_t[(df_t[wind_col] >= 3) & (df_t[wind_col] <= 25) & (df_t[power_col] > 0)]
 
-    if len(df_t)<30:
+    if len(df_t) < 30:
         return None
 
     std_dev = df_t[power_col].std()
 
-    df_t["WindBin"] = (df_t[wind_col]/BIN_SIZE).round()*BIN_SIZE
-    actual = df_t.groupby("WindBin").agg(AvgPower=(power_col,"mean")).reset_index()
+    df_t["WindBin"] = (df_t[wind_col] / BIN_SIZE).round() * BIN_SIZE
+    actual = df_t.groupby("WindBin").agg(AvgPower=(power_col, "mean")).reset_index()
 
-    merged = ref_curve.merge(actual,on="WindBin",how="left")
+    merged = ref_curve.merge(actual, on="WindBin", how="left")
 
     valid = merged["AvgPower"].notna()
-    if valid.sum()>7:
-        merged.loc[valid,"AvgPower"] = savgol_filter(merged.loc[valid,"AvgPower"],7,2)
+    if valid.sum() > 7:
+        merged.loc[valid, "AvgPower"] = savgol_filter(merged.loc[valid, "AvgPower"], 7, 2)
 
-    merged["Deviation_%"] = ((merged["AvgPower"]-merged["RefPower"])/merged["RefPower"])*100
+    merged["Deviation_%"] = ((merged["AvgPower"] - merged["RefPower"]) / merged["RefPower"]) * 100
     avg_dev = merged["Deviation_%"].mean(skipna=True)
 
     return df_t, merged, avg_dev, std_dev
@@ -162,12 +152,18 @@ def plot_graph(df_t, merged, title, dev):
     color = "green" if -2 <= dev <= 2 else "orange" if dev < -2 else "red"
 
     fig = go.Figure()
-    fig.add_trace(go.Scatter(x=df_t[wind_col],y=df_t[power_col],
-                             mode='markers',marker=dict(size=3,opacity=0.4)))
-    fig.add_trace(go.Scatter(x=merged["WindBin"],y=merged["AvgPower"],
-                             mode='lines+markers'))
-    fig.add_trace(go.Scatter(x=merged["WindBin"],y=merged["RefPower"],
-                             mode='lines',line=dict(dash='dash')))
+    fig.add_trace(go.Scatter(
+        x=df_t[wind_col], y=df_t[power_col],
+        mode='markers', marker=dict(size=3, opacity=0.4), name="SCADA"
+    ))
+    fig.add_trace(go.Scatter(
+        x=merged["WindBin"], y=merged["AvgPower"],
+        mode='lines+markers', name="Actual"
+    ))
+    fig.add_trace(go.Scatter(
+        x=merged["WindBin"], y=merged["RefPower"],
+        mode='lines', line=dict(dash='dash'), name="Reference"
+    ))
 
     fig.update_layout(title=dict(text=f"{title} (Dev: {round(dev,2)}%)", font=dict(color=color)))
     return fig
@@ -206,10 +202,10 @@ else:
 
 # DISPLAY
 cols = st.columns(2)
-i = 0
 results = []
 figures = []
 
+i = 0
 for t in turbines_to_show:
     res = process_turbine(t)
     if not res:
@@ -246,62 +242,94 @@ for t in turbines_to_show:
 
     i += 1
 
-# TABLE
+# RANKING TABLE WITH COLORS
 st.subheader("Turbine Ranking")
 results_df = pd.DataFrame(results).sort_values(by="Deviation_%")
-st.dataframe(results_df, use_container_width=True)
+
+def color_row(row):
+    if row["Status"] == "Normal":
+        return ['background-color: #ccffcc'] * len(row)
+    elif row["Status"] == "Slight Over":
+        return ['background-color: #66ff66'] * len(row)
+    elif row["Status"] == "High Over":
+        return ['background-color: #009933'] * len(row)
+    elif row["Status"] == "Under":
+        return ['background-color: #ffcc66'] * len(row)
+    elif row["Status"] == "High Under":
+        return ['background-color: #ff6666'] * len(row)
+    else:
+        return ['background-color: #cccccc'] * len(row)
+
+styled_table = results_df.style.apply(color_row, axis=1)
+st.dataframe(styled_table, use_container_width=True)
 
 # PDF REPORT
-pdf_buffer = io.BytesIO()
-pdf = canvas.Canvas(pdf_buffer, pagesize=landscape(A4))
-width, height = landscape(A4)
+try:
+    pdf_buffer = io.BytesIO()
+    pdf = canvas.Canvas(pdf_buffer, pagesize=landscape(A4))
+    width, height = landscape(A4)
 
-pdf.setFont("Helvetica-Bold", 16)
-pdf.drawString(30, height-30, f"Power Curve Analytics Report - {site}")
+    # First page
+    if os.path.exists(logo_path):
+        pdf.drawImage(logo_path, 30, height - 80, width=120, height=40)
 
-y = height - 60
+    pdf.setFont("Helvetica-Bold", 16)
+    pdf.drawString(170, height - 40, "Power Curve Analytics Report")
+    pdf.setFont("Helvetica", 10)
+    pdf.drawString(170, height - 60, f"Site: {site}")
+    pdf.drawString(170, height - 75, f"Date Range: {start_date.date()} to {end_date.date()}")
 
-for turbine, fig, comment in figures:
-    if KALEIDO_AVAILABLE:
-        try:
-            img = fig.to_image(format="png")
-            img_reader = ImageReader(io.BytesIO(img))
+    y = height - 120
 
-            if y < 250:
-                pdf.showPage()
-                y = height - 50
+    for turbine, fig, comment in figures:
+        if KALEIDO_AVAILABLE:
+            try:
+                img = fig.to_image(format="png")
+                img_reader = ImageReader(io.BytesIO(img))
 
-            pdf.drawImage(img_reader, 30, y-220, width=350, height=200)
-            pdf.setFont("Helvetica", 10)
-            pdf.drawString(400, y-30, turbine)
-            pdf.drawString(400, y-50, comment)
+                if y < 260:
+                    pdf.showPage()
+                    y = height - 60
 
-            y -= 240
-        except:
-            pass
+                pdf.drawImage(img_reader, 30, y - 220, width=360, height=200)
 
-# Ranking Table
-pdf.showPage()
-pdf.setFont("Helvetica-Bold", 14)
-pdf.drawString(30, height-40, "Turbine Ranking Summary")
+                pdf.setFont("Helvetica-Bold", 11)
+                pdf.drawString(420, y - 40, turbine)
 
-y = height - 80
-pdf.setFont("Helvetica", 10)
+                pdf.setFont("Helvetica", 10)
+                pdf.drawString(420, y - 60, comment)
 
-for idx, row in results_df.iterrows():
-    pdf.drawString(40, y, f"{row['Turbine']}   |   {row['Deviation_%']} %   |   {row['Status']}")
-    y -= 20
-    if y < 40:
-        pdf.showPage()
-        y = height - 40
+                y -= 240
+            except:
+                pass
 
-pdf.save()
-pdf_buffer.seek(0)
+    # Ranking page
+    pdf.showPage()
+    pdf.setFont("Helvetica-Bold", 14)
+    pdf.drawString(30, height - 40, "Turbine Ranking Summary")
 
-# DOWNLOAD
-st.download_button(
-    label="Download Full Dashboard Report (PDF)",
-    data=pdf_buffer,
-    file_name="WindFarm_Full_Report.pdf",
-    mime="application/pdf"
-)
+    y = height - 80
+    pdf.setFont("Helvetica", 10)
+
+    for _, row in results_df.iterrows():
+        line = f"{row['Turbine']} | {row['Deviation_%']} % | {row['Status']}"
+        pdf.drawString(40, y, line)
+        y -= 20
+
+        if y < 40:
+            pdf.showPage()
+            y = height - 40
+
+    pdf.save()
+    pdf_buffer.seek(0)
+
+    st.download_button(
+        label="Download Full Dashboard Report (PDF)",
+        data=pdf_buffer.getvalue(),
+        file_name="WindFarm_Full_Report.pdf",
+        mime="application/pdf"
+    )
+
+except Exception as e:
+    st.error("PDF generation failed")
+    st.code(str(e))
