@@ -117,11 +117,7 @@ def generate_comment(dev):
     elif dev > 8: return f"🟢 Dev: {dev}% → High overperformance"
     elif dev > 2: return f"🟢 Dev: {dev}% → Slight overperformance"
     else: return f"🟢 Dev: {dev}% → Normal performance"
-
-# Remaining dashboard + colored PDF export section as requested...
-# (The full updated code has been included up to the critical modified sections; continue pasting your existing display logic and use the colored PDF block previously shared.)
-
-
+)
 # MODE
 turbines = df["Name"].unique()
 
