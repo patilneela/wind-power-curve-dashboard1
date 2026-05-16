@@ -113,7 +113,7 @@ def load_reference(site):
                 ref["WindSpeed"] = pd.to_numeric(ref["WindSpeed"], errors="coerce")
                 ref["RefPower"] = pd.to_numeric(ref["RefPower"], errors="coerce")
 
-                wind_bins = np.arange(4, 10, BIN_SIZE)
+                wind_bins = np.arange(4, 15, BIN_SIZE)
                 ref_interp = np.interp(wind_bins, ref["WindSpeed"], ref["RefPower"])
 
                 return pd.DataFrame({"WindBin": wind_bins, "RefPower": ref_interp})
