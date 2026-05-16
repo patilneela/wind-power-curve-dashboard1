@@ -8,6 +8,12 @@ import os
 import zipfile
 import io
 
+# PDF SUPPORT
+from reportlab.lib.pagesizes import landscape, A4
+from reportlab.pdfgen import canvas
+from reportlab.lib.utils import ImageReader
+from reportlab.lib import colors
+
 st.set_page_config(layout="wide")
 
 # SAFE KALEIDO CHECK
@@ -99,7 +105,7 @@ capacity_per_turbine = SITE_CAPACITY.get(site, 3.3)
 total_capacity = num_turbines * capacity_per_turbine
 
 st.subheader(f"{site} | {num_turbines} Turbines | {capacity_per_turbine} MW Each | Total: {round(total_capacity,2)} MW")
-st.markdown(f" Date Range: {start_date.date()} → {end_date.date()}")
+st.markdown(f"Date Range: {start_date.date()} → {end_date.date()}")
 
 # LOAD REFERENCE
 @st.cache_data
@@ -174,19 +180,19 @@ def generate_comment(dev):
     dev = round(dev, 2)
 
     if dev < -72:
-        return f"🔴 Dev: {dev}% → Extreme issue (Data unreliable)"
+        return f"Extreme issue (Dev: {dev}%)"
     elif dev < -10:
-        return f"🔴 Dev: {dev}% → Severe underperformance (Blade/Yaw/Dust issue)"
+        return f"Severe underperformance (Dev: {dev}%)"
     elif dev < -2:
-        return f"🟠 Dev: {dev}% → Underperformance (Control/availability)"
+        return f"Underperformance (Dev: {dev}%)"
     elif dev > 72:
-        return f"🟣 Dev: {dev}% → Abnormal high (Sensor/Data issue)"
+        return f"Abnormal high (Dev: {dev}%)"
     elif dev > 8:
-        return f"🟢 Dev: {dev}% → High overperformance"
+        return f"High overperformance (Dev: {dev}%)"
     elif dev > 2:
-        return f"🟢 Dev: {dev}% → Slight overperformance"
+        return f"Slight overperformance (Dev: {dev}%)"
     else:
-        return f"🟢 Dev: {dev}% → Normal performance"
+        return f"Normal performance (Dev: {dev}%)"
 
 # MODE
 turbines = df["Name"].unique()
@@ -202,8 +208,7 @@ else:
 cols = st.columns(2)
 i = 0
 results = []
-zip_buffer = io.BytesIO()
-zip_file = zipfile.ZipFile(zip_buffer, "w")
+figures = []
 
 for t in turbines_to_show:
     res = process_turbine(t)
@@ -218,14 +223,8 @@ for t in turbines_to_show:
         st.markdown("Analysis")
         st.code(generate_comment(dev))
 
-    if KALEIDO_AVAILABLE:
-        try:
-            img_bytes = fig.to_image(format="png")
-            zip_file.writestr(f"{t}.png", img_bytes)
-        except:
-            pass
+    figures.append((t, fig, generate_comment(dev)))
 
-    # STATUS (IMPORTANT FIX FOR COLORS)
     if -2 <= dev <= 2:
         status = "Normal"
     elif 2 < dev <= 8:
@@ -249,38 +248,60 @@ for t in turbines_to_show:
 
 # TABLE
 st.subheader("Turbine Ranking")
-
 results_df = pd.DataFrame(results).sort_values(by="Deviation_%")
+st.dataframe(results_df, use_container_width=True)
 
-def color_row(row):
-    if row["Status"] == "Normal":
-        return ['background-color: #ccffcc'] * len(row)
-    elif row["Status"] == "Slight Over":
-        return ['background-color: #66ff66'] * len(row)
-    elif row["Status"] == "High Over":
-        return ['background-color: #009933'] * len(row)
-    elif row["Status"] == "Under":
-        return ['background-color: #ffcc66'] * len(row)
-    elif row["Status"] == "High Under":
-        return ['background-color: #ff6666'] * len(row)
-    else:
-        return ['background-color: #cccccc'] * len(row)
+# PDF REPORT
+pdf_buffer = io.BytesIO()
+pdf = canvas.Canvas(pdf_buffer, pagesize=landscape(A4))
+width, height = landscape(A4)
 
-styled_table = results_df.style.apply(color_row, axis=1)
-st.dataframe(styled_table, use_container_width=True)
+pdf.setFont("Helvetica-Bold", 16)
+pdf.drawString(30, height-30, f"Power Curve Analytics Report - {site}")
 
-# SAVE HTML (COLORED)
-zip_file.writestr("Turbine_Ranking.html", styled_table.to_html())
+y = height - 60
 
-# SAVE CSV
-zip_file.writestr("report.csv", results_df.to_csv(index=False))
+for turbine, fig, comment in figures:
+    if KALEIDO_AVAILABLE:
+        try:
+            img = fig.to_image(format="png")
+            img_reader = ImageReader(io.BytesIO(img))
 
-zip_file.close()
+            if y < 250:
+                pdf.showPage()
+                y = height - 50
+
+            pdf.drawImage(img_reader, 30, y-220, width=350, height=200)
+            pdf.setFont("Helvetica", 10)
+            pdf.drawString(400, y-30, turbine)
+            pdf.drawString(400, y-50, comment)
+
+            y -= 240
+        except:
+            pass
+
+# Ranking Table
+pdf.showPage()
+pdf.setFont("Helvetica-Bold", 14)
+pdf.drawString(30, height-40, "Turbine Ranking Summary")
+
+y = height - 80
+pdf.setFont("Helvetica", 10)
+
+for idx, row in results_df.iterrows():
+    pdf.drawString(40, y, f"{row['Turbine']}   |   {row['Deviation_%']} %   |   {row['Status']}")
+    y -= 20
+    if y < 40:
+        pdf.showPage()
+        y = height - 40
+
+pdf.save()
+pdf_buffer.seek(0)
 
 # DOWNLOAD
 st.download_button(
-    label="Download Full Dashboard (ZIP)",
-    data=zip_buffer.getvalue(),
-    file_name="WindFarm_Full_Report.zip",
-    mime="application/zip"
+    label="Download Full Dashboard Report (PDF)",
+    data=pdf_buffer,
+    file_name="WindFarm_Full_Report.pdf",
+    mime="application/pdf"
 )
