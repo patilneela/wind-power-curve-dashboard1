@@ -172,23 +172,21 @@ def plot_graph(df_t, merged, title, dev):
 def generate_comment(dev):
     if dev is None:
         return "Data not available"
-
     dev = round(dev, 2)
-
     if dev < -72:
-        return f"Extreme issue (Dev: {dev}%)"
+        return f"🔴 Dev: {dev}% → Extreme issue (Data unreliable)"
     elif dev < -10:
-        return f"Severe underperformance (Dev: {dev}%)"
+        return f"🔴 Dev: {dev}% → Severe underperformance (Blade/Yaw/Dust issue)"
     elif dev < -2:
-        return f"Underperformance (Dev: {dev}%)"
+        return f"🟠 Dev: {dev}% → Underperformance (Control/availability)"
     elif dev > 72:
-        return f"Abnormal high (Dev: {dev}%)"
+        return f"🟣 Dev: {dev}% → Abnormal high (Sensor/Data issue)"
     elif dev > 8:
-        return f"High overperformance (Dev: {dev}%)"
+        return f"🟢 Dev: {dev}% → High overperformance"
     elif dev > 2:
-        return f"Slight overperformance (Dev: {dev}%)"
+        return f"🟢 Dev: {dev}% → Slight overperformance"
     else:
-        return f"Normal performance (Dev: {dev}%)"
+        return f"🟢 Dev: {dev}% → Normal performance"
 
 # MODE
 turbines = df["Name"].unique()
