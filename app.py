@@ -46,6 +46,7 @@ REF_FILE = "India site Standard & Theoretical PC data 1234.xlsx"
 BIN_SIZE = 0.5
 
 # SIDEBAR
+os.environ["STREAMLIT_SERVER_MAX_UPLOAD_SIZE"] = "1024"
 st.sidebar.subheader("Upload SCADA File")
 uploaded_file = st.sidebar.file_uploader("Upload SCADA CSV", type=["csv"])
 
