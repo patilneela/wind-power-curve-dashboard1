@@ -11,6 +11,13 @@ from reportlab.lib.pagesizes import landscape, A4
 from reportlab.pdfgen import canvas
 from reportlab.lib.utils import ImageReader
 
+# =========================
+# STREAMLIT CONFIG
+# =========================
+
+# INCREASE FILE UPLOAD LIMIT TO 1 GB
+os.environ["STREAMLIT_SERVER_MAX_UPLOAD_SIZE"] = "1024"
+
 st.set_page_config(layout="wide")
 
 # SAFE KALEIDO CHECK
@@ -23,6 +30,7 @@ except:
 # LOGO
 logo_path = os.path.join(os.path.dirname(__file__), "Envision.png")
 col1, col2, col3 = st.columns([1, 2, 1])
+
 with col2:
     if os.path.exists(logo_path):
         st.image(logo_path, width=300)
@@ -31,36 +39,73 @@ with col2:
 st.title("Power Curve Analytics Report")
 
 # SITE CAPACITY
-SITE_CAPACITY = {site: 3.3 for site in [
-    "CIP Hatalageri","JSW Tuljapur","Blupine Sagapara","Kalavad GJ","Kalavad_PH2",
-    "AMP_Energy","Wanki","CleanMax Motadevaliya","Ayana Amerli","Mahadev PH1",
-    "Blupine-I, Ambada-GJ","ACME Shapar","FP_Kudligi","Sprng TN",
-    "Otha Pithalpur-GJ","AMGEPL,Kurnool AP","ReNew1_Gadag","partner Ottapidaum",
-    "Cleanmax SANATHALI","Cleanmax Babra","RenfraEnergy Trichy","RENEW-03 Sholapur",
-    "Renew2 Chandwad","ReNew-4 Patoda","Clean max Jagalur","Sembcorp Tuticorin",
-    "Renew-4 Kudligi","Renew Otha","Cleanmax Honavad","Blueleaf Agar",
-    "JSW_Sandur","India_Hero_Doni"
-]}
+SITE_CAPACITY = {
+    site: 3.3 for site in [
+        "CIP Hatalageri",
+        "JSW Tuljapur",
+        "Blupine Sagapara",
+        "Kalavad GJ",
+        "Kalavad_PH2",
+        "AMP_Energy",
+        "Wanki",
+        "CleanMax Motadevaliya",
+        "Ayana Amerli",
+        "Mahadev PH1",
+        "Blupine-I, Ambada-GJ",
+        "ACME Shapar",
+        "FP_Kudligi",
+        "Sprng TN",
+        "Otha Pithalpur-GJ",
+        "AMGEPL,Kurnool AP",
+        "ReNew1_Gadag",
+        "partner Ottapidaum",
+        "Cleanmax SANATHALI",
+        "Cleanmax Babra",
+        "RenfraEnergy Trichy",
+        "RENEW-03 Sholapur",
+        "Renew2 Chandwad",
+        "ReNew-4 Patoda",
+        "Clean max Jagalur",
+        "Sembcorp Tuticorin",
+        "Renew-4 Kudligi",
+        "Renew Otha",
+        "Cleanmax Honavad",
+        "Blueleaf Agar",
+        "JSW_Sandur",
+        "India_Hero_Doni"
+    ]
+}
 
 REF_FILE = "India site Standard & Theoretical PC data 1234.xlsx"
 BIN_SIZE = 0.5
 
 # SIDEBAR
-os.environ["STREAMLIT_SERVER_MAX_UPLOAD_SIZE"] = "1024"
 st.sidebar.subheader("Upload SCADA File")
-uploaded_file = st.sidebar.file_uploader("Upload SCADA CSV", type=["csv"])
+
+uploaded_file = st.sidebar.file_uploader(
+    "Upload SCADA CSV",
+    type=["csv"]
+)
 
 if uploaded_file is None:
     st.warning("Please upload SCADA file")
     st.stop()
 
-site = st.sidebar.selectbox("Select Site", list(SITE_CAPACITY.keys()))
-mode = st.sidebar.radio("Select View", ["Single Turbine", "Compare Turbines", "Show All Turbines"])
+site = st.sidebar.selectbox(
+    "Select Site",
+    list(SITE_CAPACITY.keys())
+)
+
+mode = st.sidebar.radio(
+    "Select View",
+    ["Single Turbine", "Compare Turbines", "Show All Turbines"]
+)
 
 # LOAD SCADA
 @st.cache_data
 def load_scada(file):
     df = pd.read_csv(file, low_memory=False)
+
     df.columns = df.columns.str.strip()
 
     wind_col = [c for c in df.columns if "wind" in c.lower()][0]
@@ -72,6 +117,7 @@ def load_scada(file):
     df[power_col] = pd.to_numeric(df[power_col], errors="coerce")
 
     df = df.dropna(subset=[wind_col, power_col, time_col])
+
     df["Name"] = df["Name"].astype(str).str.strip()
 
     return df, wind_col, power_col, time_col
@@ -82,42 +128,87 @@ df, wind_col, power_col, time_col = load_scada(uploaded_file)
 st.sidebar.markdown("Select Date Range")
 
 max_date = df[time_col].max()
-start_date = st.sidebar.date_input("Start Date", value=max_date - timedelta(days=15))
-end_date = st.sidebar.date_input("End Date", value=max_date)
+
+start_date = st.sidebar.date_input(
+    "Start Date",
+    value=max_date - timedelta(days=15)
+)
+
+end_date = st.sidebar.date_input(
+    "End Date",
+    value=max_date
+)
 
 start_date = pd.to_datetime(start_date)
 end_date = pd.to_datetime(end_date) + pd.Timedelta(days=1)
 
-df = df[(df[time_col] >= start_date) & (df[time_col] <= end_date)]
+df = df[
+    (df[time_col] >= start_date) &
+    (df[time_col] <= end_date)
+]
 
 # HEADER
 num_turbines = df["Name"].nunique()
+
 capacity_per_turbine = SITE_CAPACITY.get(site, 3.3)
+
 total_capacity = num_turbines * capacity_per_turbine
 
-st.subheader(f"{site} | {num_turbines} Turbines | {capacity_per_turbine} MW Each | Total: {round(total_capacity,2)} MW")
-st.markdown(f"Date Range: {start_date.date()} → {end_date.date()}")
+st.subheader(
+    f"{site} | {num_turbines} Turbines | "
+    f"{capacity_per_turbine} MW Each | "
+    f"Total: {round(total_capacity, 2)} MW"
+)
+
+st.markdown(
+    f"Date Range: {start_date.date()} → {end_date.date()}"
+)
 
 # LOAD REFERENCE
 @st.cache_data
 def load_reference(site):
-    ref_raw = pd.read_excel(REF_FILE, header=None)
+
+    ref_raw = pd.read_excel(
+        REF_FILE,
+        header=None
+    )
 
     for r in range(ref_raw.shape[0]):
+
         for c in range(ref_raw.shape[1]):
+
             cell = str(ref_raw.iloc[r, c])
+
             if site.lower() in cell.lower():
+
                 ref = ref_raw.iloc[r+2:r+60, [c-1, c+3]].copy()
+
                 ref.columns = ["WindSpeed", "RefPower"]
+
                 ref = ref.dropna()
 
-                ref["WindSpeed"] = pd.to_numeric(ref["WindSpeed"], errors="coerce")
-                ref["RefPower"] = pd.to_numeric(ref["RefPower"], errors="coerce")
+                ref["WindSpeed"] = pd.to_numeric(
+                    ref["WindSpeed"],
+                    errors="coerce"
+                )
+
+                ref["RefPower"] = pd.to_numeric(
+                    ref["RefPower"],
+                    errors="coerce"
+                )
 
                 wind_bins = np.arange(4, 15, BIN_SIZE)
-                ref_interp = np.interp(wind_bins, ref["WindSpeed"], ref["RefPower"])
 
-                return pd.DataFrame({"WindBin": wind_bins, "RefPower": ref_interp})
+                ref_interp = np.interp(
+                    wind_bins,
+                    ref["WindSpeed"],
+                    ref["RefPower"]
+                )
+
+                return pd.DataFrame({
+                    "WindBin": wind_bins,
+                    "RefPower": ref_interp
+                })
 
     st.error("Site not found")
     st.stop()
@@ -126,66 +217,128 @@ ref_curve = load_reference(site)
 
 # PROCESS
 def process_turbine(t):
+
     df_t = df[df["Name"] == t].copy()
-    df_t = df_t[(df_t[wind_col] >= 3) & (df_t[wind_col] <= 25) & (df_t[power_col] > 0)]
+
+    df_t = df_t[
+        (df_t[wind_col] >= 3) &
+        (df_t[wind_col] <= 25) &
+        (df_t[power_col] > 0)
+    ]
 
     if len(df_t) < 30:
         return None
 
     std_dev = df_t[power_col].std()
 
-    df_t["WindBin"] = (df_t[wind_col] / BIN_SIZE).round() * BIN_SIZE
-    actual = df_t.groupby("WindBin").agg(AvgPower=(power_col, "mean")).reset_index()
+    df_t["WindBin"] = (
+        (df_t[wind_col] / BIN_SIZE).round() * BIN_SIZE
+    )
 
-    merged = ref_curve.merge(actual, on="WindBin", how="left")
+    actual = df_t.groupby("WindBin").agg(
+        AvgPower=(power_col, "mean")
+    ).reset_index()
+
+    merged = ref_curve.merge(
+        actual,
+        on="WindBin",
+        how="left"
+    )
 
     valid = merged["AvgPower"].notna()
-    if valid.sum() > 7:
-        merged.loc[valid, "AvgPower"] = savgol_filter(merged.loc[valid, "AvgPower"], 7, 2)
 
-    merged["Deviation_%"] = ((merged["AvgPower"] - merged["RefPower"]) / merged["RefPower"]) * 100
+    if valid.sum() > 7:
+        merged.loc[valid, "AvgPower"] = savgol_filter(
+            merged.loc[valid, "AvgPower"],
+            7,
+            2
+        )
+
+    merged["Deviation_%"] = (
+        (
+            merged["AvgPower"] - merged["RefPower"]
+        ) / merged["RefPower"]
+    ) * 100
+
     avg_dev = merged["Deviation_%"].mean(skipna=True)
 
     return df_t, merged, avg_dev, std_dev
 
 # GRAPH
 def plot_graph(df_t, merged, title, dev):
-    color = "green" if -2 <= dev <= 2 else "orange" if dev < -2 else "red"
+
+    color = (
+        "green" if -2 <= dev <= 2
+        else "orange" if dev < -2
+        else "red"
+    )
 
     fig = go.Figure()
-    fig.add_trace(go.Scatter(
-        x=df_t[wind_col], y=df_t[power_col],
-        mode='markers', marker=dict(size=3, opacity=0.4), name="SCADA"
-    ))
-    fig.add_trace(go.Scatter(
-        x=merged["WindBin"], y=merged["AvgPower"],
-        mode='lines+markers', name="Actual"
-    ))
-    fig.add_trace(go.Scatter(
-        x=merged["WindBin"], y=merged["RefPower"],
-        mode='lines', line=dict(dash='dash'), name="Reference"
-    ))
 
-    fig.update_layout(title=dict(text=f"{title} (Dev: {round(dev,2)}%)", font=dict(color=color)))
+    fig.add_trace(
+        go.Scatter(
+            x=df_t[wind_col],
+            y=df_t[power_col],
+            mode='markers',
+            marker=dict(size=3, opacity=0.4),
+            name="SCADA"
+        )
+    )
+
+    fig.add_trace(
+        go.Scatter(
+            x=merged["WindBin"],
+            y=merged["AvgPower"],
+            mode='lines+markers',
+            name="Actual"
+        )
+    )
+
+    fig.add_trace(
+        go.Scatter(
+            x=merged["WindBin"],
+            y=merged["RefPower"],
+            mode='lines',
+            line=dict(dash='dash'),
+            name="Reference"
+        )
+    )
+
+    fig.update_layout(
+        title=dict(
+            text=f"{title} (Dev: {round(dev, 2)}%)",
+            font=dict(color=color)
+        )
+    )
+
     return fig
 
 # COMMENT
 def generate_comment(dev):
+
     if dev is None:
         return "Data not available"
+
     dev = round(dev, 2)
+
     if dev < -72:
         return f"🔴 Dev: {dev}% → Extreme issue (Data unreliable)"
+
     elif dev < -10:
         return f"🔴 Dev: {dev}% → Severe underperformance (Blade/Yaw/Dust issue)"
+
     elif dev < -2:
         return f"🟠 Dev: {dev}% → Underperformance (Control/availability)"
+
     elif dev > 72:
         return f"🟣 Dev: {dev}% → Abnormal high (Sensor/Data issue)"
+
     elif dev > 8:
         return f"🟢 Dev: {dev}% → High overperformance"
+
     elif dev > 2:
         return f"🟢 Dev: {dev}% → Slight overperformance"
+
     else:
         return f"🟢 Dev: {dev}% → Normal performance"
 
@@ -193,43 +346,82 @@ def generate_comment(dev):
 turbines = df["Name"].unique()
 
 if mode == "Single Turbine":
-    turbines_to_show = [st.sidebar.selectbox("Select Turbine", turbines)]
+
+    turbines_to_show = [
+        st.sidebar.selectbox(
+            "Select Turbine",
+            turbines
+        )
+    ]
+
 elif mode == "Compare Turbines":
-    turbines_to_show = st.sidebar.multiselect("Select Turbines", turbines)
+
+    turbines_to_show = st.sidebar.multiselect(
+        "Select Turbines",
+        turbines
+    )
+
 else:
     turbines_to_show = turbines
 
 # DISPLAY
 cols = st.columns(2)
+
 results = []
 figures = []
 
 i = 0
+
 for t in turbines_to_show:
+
     res = process_turbine(t)
+
     if not res:
         continue
 
     df_t, merged, dev, std = res
 
     with cols[i % 2]:
-        fig = plot_graph(df_t, merged, t, dev)
-        st.plotly_chart(fig, use_container_width=True)
+
+        fig = plot_graph(
+            df_t,
+            merged,
+            t,
+            dev
+        )
+
+        st.plotly_chart(
+            fig,
+            use_container_width=True
+        )
+
         st.markdown("Analysis")
+
         st.code(generate_comment(dev))
 
-    figures.append((t, fig, generate_comment(dev)))
+    figures.append(
+        (
+            t,
+            fig,
+            generate_comment(dev)
+        )
+    )
 
     if -2 <= dev <= 2:
         status = "Normal"
+
     elif 2 < dev <= 8:
         status = "Slight Over"
+
     elif dev > 8:
         status = "High Over"
+
     elif -10 <= dev < -2:
         status = "Under"
+
     elif dev < -10:
         status = "High Under"
+
     else:
         status = "Issue"
 
@@ -243,76 +435,174 @@ for t in turbines_to_show:
 
 # RANKING TABLE WITH COLORS
 st.subheader("Turbine Ranking")
-results_df = pd.DataFrame(results).sort_values(by="Deviation_%")
+
+results_df = pd.DataFrame(results).sort_values(
+    by="Deviation_%"
+)
 
 def color_row(row):
+
     if row["Status"] == "Normal":
         return ['background-color: #ccffcc'] * len(row)
+
     elif row["Status"] == "Slight Over":
         return ['background-color: #66ff66'] * len(row)
+
     elif row["Status"] == "High Over":
         return ['background-color: #009933'] * len(row)
+
     elif row["Status"] == "Under":
         return ['background-color: #ffcc66'] * len(row)
+
     elif row["Status"] == "High Under":
         return ['background-color: #ff6666'] * len(row)
+
     else:
         return ['background-color: #cccccc'] * len(row)
 
-styled_table = results_df.style.apply(color_row, axis=1)
-st.dataframe(styled_table, use_container_width=True)
+styled_table = results_df.style.apply(
+    color_row,
+    axis=1
+)
+
+st.dataframe(
+    styled_table,
+    use_container_width=True
+)
 
 # PDF REPORT
 try:
+
     pdf_buffer = io.BytesIO()
-    pdf = canvas.Canvas(pdf_buffer, pagesize=landscape(A4))
+
+    pdf = canvas.Canvas(
+        pdf_buffer,
+        pagesize=landscape(A4)
+    )
+
     width, height = landscape(A4)
 
-    # First page
+    # FIRST PAGE
     if os.path.exists(logo_path):
-        pdf.drawImage(logo_path, 30, height - 80, width=120, height=40)
+
+        pdf.drawImage(
+            logo_path,
+            30,
+            height - 80,
+            width=120,
+            height=40
+        )
 
     pdf.setFont("Helvetica-Bold", 16)
-    pdf.drawString(170, height - 40, "Power Curve Analytics Report")
+
+    pdf.drawString(
+        170,
+        height - 40,
+        "Power Curve Analytics Report"
+    )
+
     pdf.setFont("Helvetica", 10)
-    pdf.drawString(170, height - 60, f"Site: {site}")
-    pdf.drawString(170, height - 75, f"Date Range: {start_date.date()} to {end_date.date()}")
+
+    pdf.drawString(
+        170,
+        height - 60,
+        f"Site: {site}"
+    )
+
+    pdf.drawString(
+        170,
+        height - 75,
+        f"Date Range: {start_date.date()} to {end_date.date()}"
+    )
 
     y = height - 120
 
     for turbine, fig, comment in figures:
+
         if KALEIDO_AVAILABLE:
+
             try:
+
                 img = fig.to_image(format="png")
-                img_reader = ImageReader(io.BytesIO(img))
+
+                img_reader = ImageReader(
+                    io.BytesIO(img)
+                )
 
                 if y < 260:
                     pdf.showPage()
                     y = height - 60
 
-                pdf.drawImage(img_reader, 30, y - 220, width=360, height=200)
+                pdf.drawImage(
+                    img_reader,
+                    30,
+                    y - 220,
+                    width=360,
+                    height=200
+                )
 
-                pdf.setFont("Helvetica-Bold", 11)
-                pdf.drawString(420, y - 40, turbine)
+                pdf.setFont(
+                    "Helvetica-Bold",
+                    11
+                )
 
-                pdf.setFont("Helvetica", 10)
-                pdf.drawString(420, y - 60, comment)
+                pdf.drawString(
+                    420,
+                    y - 40,
+                    turbine
+                )
+
+                pdf.setFont(
+                    "Helvetica",
+                    10
+                )
+
+                pdf.drawString(
+                    420,
+                    y - 60,
+                    comment
+                )
 
                 y -= 240
+
             except:
                 pass
 
-    # Ranking page
+    # RANKING PAGE
     pdf.showPage()
-    pdf.setFont("Helvetica-Bold", 14)
-    pdf.drawString(30, height - 40, "Turbine Ranking Summary")
+
+    pdf.setFont(
+        "Helvetica-Bold",
+        14
+    )
+
+    pdf.drawString(
+        30,
+        height - 40,
+        "Turbine Ranking Summary"
+    )
 
     y = height - 80
-    pdf.setFont("Helvetica", 10)
+
+    pdf.setFont(
+        "Helvetica",
+        10
+    )
 
     for _, row in results_df.iterrows():
-        line = f"{row['Turbine']} | {row['Deviation_%']} % | {row['Status']}"
-        pdf.drawString(40, y, line)
+
+        line = (
+            f"{row['Turbine']} | "
+            f"{row['Deviation_%']} % | "
+            f"{row['Status']}"
+        )
+
+        pdf.drawString(
+            40,
+            y,
+            line
+        )
+
         y -= 20
 
         if y < 40:
@@ -320,6 +610,7 @@ try:
             y = height - 40
 
     pdf.save()
+
     pdf_buffer.seek(0)
 
     st.download_button(
@@ -330,5 +621,7 @@ try:
     )
 
 except Exception as e:
+
     st.error("PDF generation failed")
+
     st.code(str(e))
