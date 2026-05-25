@@ -12,12 +12,9 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.utils import ImageReader
 
 # =========================
-# 1GB FILE UPLOAD SUPPORT
+# PAGE CONFIG
 # =========================
-os.environ["STREAMLIT_SERVER_MAX_UPLOAD_SIZE"] = "1024"
-
 st.set_page_config(layout="wide")
-st.set_option('server.maxUploadSize', 1024)
 
 # SAFE KALEIDO CHECK
 try:
@@ -26,18 +23,25 @@ try:
 except:
     KALEIDO_AVAILABLE = False
 
+# =========================
 # LOGO
+# =========================
 logo_path = os.path.join(os.path.dirname(__file__), "Envision.png")
+
 col1, col2, col3 = st.columns([1, 2, 1])
 
 with col2:
     if os.path.exists(logo_path):
         st.image(logo_path, width=300)
 
+# =========================
 # TITLE
+# =========================
 st.title("Power Curve Analytics Report")
 
+# =========================
 # SITE CAPACITY
+# =========================
 SITE_CAPACITY = {
     site: 3.3 for site in [
         "CIP Hatalageri",
@@ -76,9 +80,12 @@ SITE_CAPACITY = {
 }
 
 REF_FILE = "India site Standard & Theoretical PC data 1234.xlsx"
+
 BIN_SIZE = 0.5
 
+# =========================
 # SIDEBAR
+# =========================
 st.sidebar.subheader("Upload SCADA File")
 
 uploaded_file = st.sidebar.file_uploader(
@@ -106,29 +113,34 @@ mode = st.sidebar.radio(
 @st.cache_data(show_spinner=True)
 def load_scada(file):
 
-    # LARGE FILE SUPPORT
     chunksize = 200000
 
     chunks = pd.read_csv(
         file,
         chunksize=chunksize,
         low_memory=False,
-        engine="c",
-        memory_map=True
+        engine="c"
     )
 
     df = pd.concat(chunks, ignore_index=True)
 
     df.columns = df.columns.str.strip()
 
-    wind_col = [c for c in df.columns if "wind" in c.lower()][0]
+    wind_col = [
+        c for c in df.columns
+        if "wind" in c.lower()
+    ][0]
 
     power_col = [
         c for c in df.columns
-        if "power" in c.lower() or "active" in c.lower()
+        if "power" in c.lower()
+        or "active" in c.lower()
     ][0]
 
-    time_col = [c for c in df.columns if "time" in c.lower()][0]
+    time_col = [
+        c for c in df.columns
+        if "time" in c.lower()
+    ][0]
 
     df[time_col] = pd.to_datetime(
         df[time_col],
@@ -146,18 +158,23 @@ def load_scada(file):
     )
 
     df = df.dropna(
-        subset=[wind_col, power_col, time_col]
+        subset=[
+            wind_col,
+            power_col,
+            time_col
+        ]
     )
 
     df["Name"] = df["Name"].astype(str).str.strip()
 
     return df, wind_col, power_col, time_col
 
-
-with st.spinner("Loading large SCADA file..."):
+with st.spinner("Loading SCADA file..."):
     df, wind_col, power_col, time_col = load_scada(uploaded_file)
 
+# =========================
 # DATE FILTER
+# =========================
 st.sidebar.markdown("Select Date Range")
 
 max_date = df[time_col].max()
@@ -173,14 +190,18 @@ end_date = st.sidebar.date_input(
 )
 
 start_date = pd.to_datetime(start_date)
+
 end_date = pd.to_datetime(end_date) + pd.Timedelta(days=1)
 
 df = df[
-    (df[time_col] >= start_date) &
+    (df[time_col] >= start_date)
+    &
     (df[time_col] <= end_date)
 ]
 
+# =========================
 # HEADER
+# =========================
 num_turbines = df["Name"].nunique()
 
 capacity_per_turbine = SITE_CAPACITY.get(site, 3.3)
@@ -191,7 +212,7 @@ st.subheader(
     f"{site} | "
     f"{num_turbines} Turbines | "
     f"{capacity_per_turbine} MW Each | "
-    f"Total: {round(total_capacity,2)} MW"
+    f"Total: {round(total_capacity, 2)} MW"
 )
 
 st.markdown(
@@ -219,8 +240,8 @@ def load_reference(site):
             if site.lower() in cell.lower():
 
                 ref = ref_raw.iloc[
-                    r+2:r+60,
-                    [c-1, c+3]
+                    r + 2:r + 60,
+                    [c - 1, c + 3]
                 ].copy()
 
                 ref.columns = [
@@ -257,7 +278,7 @@ def load_reference(site):
                     "RefPower": ref_interp
                 })
 
-    st.error("Site not found")
+    st.error("Site not found in reference file")
     st.stop()
 
 ref_curve = load_reference(site)
@@ -270,8 +291,10 @@ def process_turbine(t):
     df_t = df[df["Name"] == t].copy()
 
     df_t = df_t[
-        (df_t[wind_col] >= 3) &
-        (df_t[wind_col] <= 25) &
+        (df_t[wind_col] >= 3)
+        &
+        (df_t[wind_col] <= 25)
+        &
         (df_t[power_col] > 0)
     ]
 
@@ -365,9 +388,12 @@ def plot_graph(df_t, merged, title, dev):
 
     fig.update_layout(
         title=dict(
-            text=f"{title} (Dev: {round(dev,2)}%)",
+            text=f"{title} (Dev: {round(dev, 2)}%)",
             font=dict(color=color)
-        )
+        ),
+        xaxis_title="Wind Speed",
+        yaxis_title="Power",
+        height=500
     )
 
     return fig
@@ -386,13 +412,13 @@ def generate_comment(dev):
         return f"🔴 Dev: {dev}% → Extreme issue (Data unreliable)"
 
     elif dev < -10:
-        return f"🔴 Dev: {dev}% → Severe underperformance (Blade/Yaw/Dust issue)"
+        return f"🔴 Dev: {dev}% → Severe underperformance"
 
     elif dev < -2:
-        return f"🟠 Dev: {dev}% → Underperformance (Control/availability)"
+        return f"🟠 Dev: {dev}% → Underperformance"
 
     elif dev > 72:
-        return f"🟣 Dev: {dev}% → Abnormal high (Sensor/Data issue)"
+        return f"🟣 Dev: {dev}% → Abnormal high (Sensor issue)"
 
     elif dev > 8:
         return f"🟢 Dev: {dev}% → High overperformance"
@@ -403,7 +429,9 @@ def generate_comment(dev):
     else:
         return f"🟢 Dev: {dev}% → Normal performance"
 
+# =========================
 # MODE
+# =========================
 turbines = df["Name"].unique()
 
 if mode == "Single Turbine":
@@ -458,7 +486,8 @@ for t in turbines_to_show:
             use_container_width=True
         )
 
-        st.markdown("Analysis")
+        st.markdown("### Analysis")
+
         st.code(generate_comment(dev))
 
     figures.append((
@@ -498,39 +527,43 @@ for t in turbines_to_show:
 # =========================
 st.subheader("Turbine Ranking")
 
-results_df = pd.DataFrame(results).sort_values(
-    by="Deviation_%"
-)
+results_df = pd.DataFrame(results)
 
-def color_row(row):
+if not results_df.empty:
 
-    if row["Status"] == "Normal":
-        return ['background-color: #ccffcc'] * len(row)
+    results_df = results_df.sort_values(
+        by="Deviation_%"
+    )
 
-    elif row["Status"] == "Slight Over":
-        return ['background-color: #66ff66'] * len(row)
+    def color_row(row):
 
-    elif row["Status"] == "High Over":
-        return ['background-color: #009933'] * len(row)
+        if row["Status"] == "Normal":
+            return ['background-color: #ccffcc'] * len(row)
 
-    elif row["Status"] == "Under":
-        return ['background-color: #ffcc66'] * len(row)
+        elif row["Status"] == "Slight Over":
+            return ['background-color: #66ff66'] * len(row)
 
-    elif row["Status"] == "High Under":
-        return ['background-color: #ff6666'] * len(row)
+        elif row["Status"] == "High Over":
+            return ['background-color: #009933'] * len(row)
 
-    else:
-        return ['background-color: #cccccc'] * len(row)
+        elif row["Status"] == "Under":
+            return ['background-color: #ffcc66'] * len(row)
 
-styled_table = results_df.style.apply(
-    color_row,
-    axis=1
-)
+        elif row["Status"] == "High Under":
+            return ['background-color: #ff6666'] * len(row)
 
-st.dataframe(
-    styled_table,
-    use_container_width=True
-)
+        else:
+            return ['background-color: #cccccc'] * len(row)
+
+    styled_table = results_df.style.apply(
+        color_row,
+        axis=1
+    )
+
+    st.dataframe(
+        styled_table,
+        use_container_width=True
+    )
 
 # =========================
 # PDF REPORT
@@ -546,7 +579,7 @@ try:
 
     width, height = landscape(A4)
 
-    # FIRST PAGE
+    # HEADER
     if os.path.exists(logo_path):
 
         pdf.drawImage(
@@ -596,6 +629,7 @@ try:
                 if y < 260:
 
                     pdf.showPage()
+
                     y = height - 60
 
                 pdf.drawImage(
@@ -630,7 +664,7 @@ try:
 
                 y -= 240
 
-            except:
+            except Exception:
                 pass
 
     # RANKING PAGE
@@ -673,6 +707,7 @@ try:
         if y < 40:
 
             pdf.showPage()
+
             y = height - 40
 
     pdf.save()
@@ -689,4 +724,5 @@ try:
 except Exception as e:
 
     st.error("PDF generation failed")
+
     st.code(str(e))
