@@ -142,6 +142,11 @@ def load_scada(file):
         if "time" in c.lower()
     ][0]
 
+    pitch_col = [
+        c for c in df.columns 
+        if "pitch" in c.lower()
+    ][0]
+
     df[time_col] = pd.to_datetime(
         df[time_col],
         errors="coerce"
@@ -157,20 +162,26 @@ def load_scada(file):
         errors="coerce"
     )
 
+    df[pitch_col] = pd.to_numeric(
+        df[pitch_col],
+        errors = "coerce"
+    )
+
     df = df.dropna(
         subset=[
             wind_col,
             power_col,
-            time_col
+            time_col,
+            pitch_col
         ]
     )
 
     df["Name"] = df["Name"].astype(str).str.strip()
 
-    return df, wind_col, power_col, time_col
+    return df, wind_col, power_col, time_col, pitch_col
 
 with st.spinner("Loading SCADA file..."):
-    df, wind_col, power_col, time_col = load_scada(uploaded_file)
+    df, wind_col, power_col, time_col, pitch_col = load_scada(uploaded_file)
 
 # =========================
 # DATE FILTER
@@ -296,6 +307,10 @@ def process_turbine(t):
         (df_t[wind_col] <= 25)
         &
         (df_t[power_col] > 0)
+        &
+        (df_t[pitch_col] >= -5) 
+        &  
+        (df_t[pitch_col] <= 5)
     ]
 
     if len(df_t) < 30:
