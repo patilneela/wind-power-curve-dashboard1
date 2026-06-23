@@ -318,10 +318,7 @@ def process_turbine(t):
 
     std_dev = df_t[power_col].std()
 
-    df_t["WindBin"] = (
-        (df_t[wind_col] / BIN_SIZE).round()
-        * BIN_SIZE
-    )
+    df_t["WindBin"] = (np.floor(df_t[wind_col] / BIN_SIZE) * BIN_SIZE).round(6)
 
     actual = df_t.groupby("WindBin").agg(
         AvgPower=(power_col, "mean")
@@ -335,7 +332,7 @@ def process_turbine(t):
 
     valid = merged["AvgPower"].notna()
 
-    if valid.sum() > 7:
+    if valid.sum() >= 7:
 
         merged.loc[
             valid,
