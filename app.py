@@ -107,6 +107,8 @@ mode = st.sidebar.radio(
     ["Single Turbine", "Compare Turbines", "Show All Turbines"]
 )
 
+tab_default, tab_upload_ref = st.tabs(["Default Reference", "Upload Reference"])
+
 # =========================
 # LOAD SCADA
 # =========================
@@ -292,12 +294,43 @@ def load_reference(site):
     st.error("Site not found in reference file")
     st.stop()
 
+with tab_default:
+    def load_reference_from_uploaded_excel(excel_bytes, site_text, bin_size, ws_min=4.0, ws_max=15.0):
+    ref_raw = pd.read_excel(io.BytesIO(excel_bytes), header=None)
+
+    for r in range(ref_raw.shape[0]):
+        for c in range(ref_raw.shape[1]):
+            cell = str(ref_raw.iloc[r, c])
+            if site_text.lower() in cell.lower():
+                ref = ref_raw.iloc[r + 2:r + 60, [c - 1, c + 3]].copy()
+                ref.columns = ["WindSpeed", "RefPower"]
+                ref = ref.dropna()
+
+                ref["WindSpeed"] = pd.to_numeric(ref["WindSpeed"], errors="coerce")
+                ref["RefPower"] = pd.to_numeric(ref["RefPower"], errors="coerce")
+                ref = ref.dropna()
+
+                # Filter
+                ref = ref[(ref["WindSpeed"] >= ws_min) & (ref["WindSpeed"] <= ws_max)]
+                ref = ref[ref["RefPower"] > 0]
+
+                if ref.empty:
+                    return None
+
+                wind_bins = np.arange(ws_min, ws_max + 1e-9, bin_size)
+                ref_interp = np.interp(wind_bins, ref["WindSpeed"], ref["RefPower"])
+
+                return pd.DataFrame({"WindBin": wind_bins, "RefPower": ref_interp})
+
+    return None
+        
+
 ref_curve = load_reference(site)
 
 # =========================
 # PROCESS TURBINE
 # =========================
-def process_turbine(t):
+def process_turbine(t, ref_curve):
 
     df_t = df[df["Name"] == t].copy()
 
@@ -477,7 +510,7 @@ i = 0
 
 for t in turbines_to_show:
 
-    res = process_turbine(t)
+    res = process_turbine(t, ref_curve)
 
     if not res:
         continue
@@ -576,6 +609,70 @@ if not results_df.empty:
         styled_table,
         use_container_width=True
     )
+with tab_upload_ref:
+    st.subheader("Upload Reference Power Curve (Excel)")
+
+    # Session state for uploaded ref
+    if "ref_bytes" not in st.session_state:
+        st.session_state["ref_bytes"] = None
+    if "ref_name" not in st.session_state:
+        st.session_state["ref_name"] = None
+
+    ref_upload = st.file_uploader("Upload reference .xlsx", type=["xlsx"], key="ref_upload_widget")
+
+    colA, colB = st.columns([2, 1])
+    with colA:
+        if ref_upload is not None:
+            st.session_state["ref_bytes"] = ref_upload.getvalue()
+            st.session_state["ref_name"] = ref_upload.name
+            st.success(f"Loaded reference file: {ref_upload.name}")
+
+    with colB:
+        if st.session_state["ref_bytes"] is not None:
+            if st.button("Delete uploaded file"):
+                st.session_state["ref_bytes"] = None
+                st.session_state["ref_name"] = None
+                st.rerun()
+
+    if st.session_state["ref_bytes"] is None:
+        st.info("Upload a reference Excel file to generate the power curve with a new site reference.")
+        st.stop()
+
+    site_text = st.text_input("Text to match site in Excel", value=site)
+    ws_min = st.number_input("Reference wind min (m/s)", value=4.0, step=0.5)
+    ws_max = st.number_input("Reference wind max (m/s)", value=15.0, step=0.5)
+
+    ref_curve_uploaded = load_reference_from_uploaded_excel(
+        st.session_state["ref_bytes"],
+        site_text=site_text,
+        bin_size=BIN_SIZE,
+        ws_min=ws_min,
+        ws_max=ws_max
+    )
+
+    if ref_curve_uploaded is None:
+        st.error("Could not build a reference curve from the uploaded file. Check site text and file format.")
+        st.stop()
+
+    st.caption("Using uploaded reference curve. Generating turbine plots...")
+
+    cols2 = st.columns(2)
+    i2 = 0
+
+    for t in turbines_to_show:
+        res2 = process_turbine(t, ref_curve_uploaded)
+        if not res2:
+            continue
+
+        df_t2, merged2, dev2, std2 = res2
+
+        with cols2[i2 % 2]:
+            fig2 = plot_graph(df_t2, merged2, t, dev2)
+            st.plotly_chart(fig2, use_container_width=True)
+            st.markdown("### Analysis")
+            st.code(generate_comment(dev2))
+
+        i2 += 1
 
 # =========================
 # PDF REPORT
