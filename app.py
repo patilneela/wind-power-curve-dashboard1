@@ -86,6 +86,9 @@ DEFAULT_SITE_CAPACITY = {
         "India_Hero_Doni"
     ]
 }
+REF_FILE = "India site Standard & Theoretical PC data 1234.xlsx"
+
+BIN_SIZE = 0.5
 
 # =========================
 # LOAD SITE MASTER (optional)
