@@ -149,9 +149,6 @@ SITE_CAPACITY = load_site_capacity()
 # =========================
 tab_dashboard, tab_admin = st.tabs(["Dashboard", "Site Add-on / Admin"])
 
-# ==========================================================
-
-# ==========================================================
 with tab_admin:
     st.subheader("Site Add-on / Admin")
     st.divider()
@@ -279,7 +276,7 @@ with tab_admin:
                 st.code(str(e))
 
 # ==========================================================
-# TAB 1: DASHBOARD (Your existing logic)
+# TAB 1: DASHBOARD
 # ==========================================================
 with tab_dashboard:
 
@@ -350,26 +347,80 @@ with tab_dashboard:
         df, wind_col, power_col, time_col, pitch_col = load_scada(uploaded_file)
 
     # =========================
-    # DATE FILTER
+    # DATE FILTER (Manual + Presets)
     # =========================
-    st.sidebar.markdown("Select Date Range")
+st.sidebar.markdown("### Date Range")
 
-    max_date = df[time_col].max()
+date_mode = st.sidebar.radio(
+    "Select Date Mode",
+    ["Manual", "Auto (Preset)"],
+    index=0
+)
 
+preset = None
+if date_mode == "Auto (Preset)":
+    preset = st.sidebar.selectbox(
+        "Preset",
+        ["Today", "This week", "This month", "Last week", "Last month"],
+        index=1
+    )
+
+max_date = df[time_col].max()
+if pd.isna(max_date):
+    st.error("Could not parse timestamps from SCADA. Check the Time column format.")
+    st.stop()
+
+today = pd.Timestamp.today().normalize()
+
+def week_start(ts: pd.Timestamp) -> pd.Timestamp:
+    # Monday start of week
+    return (ts - pd.Timedelta(days=ts.weekday())).normalize()
+
+def month_start(ts: pd.Timestamp) -> pd.Timestamp:
+    return ts.replace(day=1).normalize()
+
+if date_mode == "Manual":
     start_date = st.sidebar.date_input(
         "Start Date",
-        value=(max_date - timedelta(days=15)).date() if pd.notna(max_date) else None
+        value=(max_date - timedelta(days=15)).date()
     )
-
     end_date = st.sidebar.date_input(
         "End Date",
-        value=max_date.date() if pd.notna(max_date) else None
+        value=max_date.date()
     )
+    start_dt = pd.to_datetime(start_date)
+    end_dt = pd.to_datetime(end_date) + pd.Timedelta(days=1)
 
-    start_date = pd.to_datetime(start_date)
-    end_date = pd.to_datetime(end_date) + pd.Timedelta(days=1)
+else:
+    if preset == "Today":
+        start_dt = today
+        end_dt = today + pd.Timedelta(days=1)
 
-    df = df[(df[time_col] >= start_date) & (df[time_col] <= end_date)]
+    elif preset == "This week":
+        start_dt = week_start(today)
+        end_dt = today + pd.Timedelta(days=1)
+
+    elif preset == "Last week":
+        this_week = week_start(today)
+        start_dt = this_week - pd.Timedelta(days=7)
+        end_dt = this_week
+
+    elif preset == "This month":
+        start_dt = month_start(today)
+        end_dt = today + pd.Timedelta(days=1)
+
+    elif preset == "Last month":
+        this_month = month_start(today)
+        last_month_end = this_month
+        last_month_start = month_start(this_month - pd.Timedelta(days=1))
+        start_dt = last_month_start
+        end_dt = last_month_end
+
+# Apply filter
+df = df[(df[time_col] >= start_dt) & (df[time_col] < end_dt)]
+
+# Show chosen range on dashboard
+st.caption(f"Selected Date Range: {start_dt.date()} → {(end_dt - pd.Timedelta(days=1)).date()}")
 
     # =========================
     # HEADER
@@ -625,7 +676,7 @@ with tab_dashboard:
 
         pdf.setFont("Helvetica", 10)
         pdf.drawString(170, height - 60, f"Site: {site}")
-        pdf.drawString(170, height - 75, f"Date Range: {start_date.date()} to {end_date.date()}")
+        pdf.drawString(170, height - 75, f"Date Range: {start_dt.date()} to {(end_dt - pd.Timedelta(days=1)).date()}")
 
         y = height - 120
 
