@@ -150,18 +150,12 @@ SITE_CAPACITY = load_site_capacity()
 tab_dashboard, tab_admin = st.tabs(["Dashboard", "Site Add-on / Admin"])
 
 # ==========================================================
-# TAB 2: ADMIN (Upload/Delete Reference + Site Master)
+
 # ==========================================================
 with tab_admin:
     st.subheader("Site Add-on / Admin")
 
-    st.markdown(
-        """
-Use this tab when:
-- A **new site** is added (upload Site Master so new site shows in dropdown)
-- The **reference Excel** is updated or wrong (upload/replace it)
-- You uploaded a wrong file (delete it and re-upload)
-        """.strip()
+    st.strip()
     )
 
     st.divider()
@@ -220,14 +214,7 @@ Use this tab when:
     # -------------------------
     st.markdown("## 2) Site Master (Site + Capacity_MW)")
 
-    st.markdown(
-        """
-Upload a site master file so you can add new sites without changing code.
-
-**Required columns (recommended):**
-- `Site`
-- `Capacity_MW`
-        """.strip()
+    st.strip()
     )
 
     if os.path.exists(SITE_MASTER_PATH):
