@@ -154,10 +154,6 @@ tab_dashboard, tab_admin = st.tabs(["Dashboard", "Site Add-on / Admin"])
 # ==========================================================
 with tab_admin:
     st.subheader("Site Add-on / Admin")
-
-    st.strip()
-    )
-
     st.divider()
 
     # -------------------------
@@ -213,9 +209,6 @@ with tab_admin:
     # Site master manager
     # -------------------------
     st.markdown("## 2) Site Master (Site + Capacity_MW)")
-
-    st.strip()
-    )
 
     if os.path.exists(SITE_MASTER_PATH):
         st.success(f"Site Master found: `{os.path.basename(SITE_MASTER_PATH)}`")
