@@ -12,6 +12,11 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.utils import ImageReader
 
 # =========================
+# PAGE CONFIG
+# =========================
+st.set_page_config(layout="wide")
+
+# =========================
 # SIMPLE LOCK (single user)
 # =========================
 def login_gate():
@@ -47,10 +52,10 @@ def login_gate():
 
 login_gate()
 
-# =========================
-# PAGE CONFIG
-# =========================
-st.set_page_config(layout="wide")
+if st.sidebar.button("Logout"):
+    st.session_state.authenticated = False
+    st.rerun()
+
 
 # SAFE KALEIDO CHECK
 try:
@@ -776,8 +781,3 @@ with tab_dashboard:
     except Exception as e:
         st.error("PDF generation failed")
         st.code(str(e))
-        
-        
-    if st.sidebar.button("Logout"):
-    st.session_state.authenticated = False
-    st.rerun()
