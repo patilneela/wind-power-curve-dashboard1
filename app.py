@@ -34,9 +34,61 @@ SITE_MASTER_CSV = os.path.join(BASE_DIR, "site_master.csv")
 BIN_SIZE = 0.5
 
 # =========================
+# HELPERS
+# =========================
+def get_site_master_path():
+    if os.path.exists(SITE_MASTER_XLSX):
+        return SITE_MASTER_XLSX
+    if os.path.exists(SITE_MASTER_CSV):
+        return SITE_MASTER_CSV
+    return None
+
+def get_quick_date_range(option: str, anchor_ts: pd.Timestamp):
+    """
+    Returns (start_ts, end_ts_exclusive).
+    end_ts_exclusive is next-day boundary (exclusive end).
+    Uses anchor_ts (max timestamp in SCADA) as "today" reference.
+    """
+    if pd.isna(anchor_ts):
+        anchor_ts = pd.Timestamp.today()
+
+    anchor_date = anchor_ts.normalize()
+
+    if option == "Today":
+        start = anchor_date
+        end_excl = anchor_date + pd.Timedelta(days=1)
+
+    elif option == "This Week":
+        # Monday -> Today
+        start = anchor_date - pd.Timedelta(days=anchor_date.weekday())
+        end_excl = anchor_date + pd.Timedelta(days=1)
+
+    elif option == "Last Week":
+        this_monday = anchor_date - pd.Timedelta(days=anchor_date.weekday())
+        start = this_monday - pd.Timedelta(days=7)
+        end_excl = this_monday
+
+    elif option == "This Month":
+        start = anchor_date.replace(day=1)
+        end_excl = anchor_date + pd.Timedelta(days=1)
+
+    elif option == "Last Month":
+        first_this_month = anchor_date.replace(day=1)
+        last_month_end = first_this_month - pd.Timedelta(days=1)
+        start = last_month_end.replace(day=1)
+        end_excl = first_this_month
+
+    else:
+        start = anchor_date - pd.Timedelta(days=15)
+        end_excl = anchor_date + pd.Timedelta(days=1)
+
+    return start, end_excl
+
+# =========================
 # LOGO
 # =========================
 logo_path = os.path.join(BASE_DIR, "Envision.png")
+
 col1, col2, col3 = st.columns([1, 2, 1])
 with col2:
     if os.path.exists(logo_path):
@@ -86,14 +138,6 @@ DEFAULT_SITE_CAPACITY = {
         "India_Hero_Doni"
     ]
 }
-
-def get_site_master_path():
-    """Return whichever site_master file exists."""
-    if os.path.exists(SITE_MASTER_XLSX):
-        return SITE_MASTER_XLSX
-    if os.path.exists(SITE_MASTER_CSV):
-        return SITE_MASTER_CSV
-    return None
 
 @st.cache_data
 def load_site_capacity():
@@ -154,6 +198,15 @@ tab_dashboard, tab_admin = st.tabs(["Dashboard", "Site Add-on / Admin"])
 # ==========================================================
 with tab_admin:
     st.subheader("Site Add-on / Admin")
+    st.markdown(
+        """
+Use this tab when:
+- A new site is added (upload Site Master so new site shows in dropdown)
+- The reference Excel is updated/wrong (upload/replace it)
+- You uploaded wrong file (delete it and re-upload)
+        """.strip()
+    )
+
     st.divider()
 
     # ---- Reference Excel manager ----
@@ -205,6 +258,16 @@ with tab_admin:
 
     # ---- Site Master manager ----
     st.markdown("## 2) Site Master (site_master.xlsx / site_master.csv)")
+    st.markdown(
+        """
+Upload a Site Master file so you can add new sites without changing code.
+
+Recommended columns:
+- `Site`
+- `Capacity_MW`
+        """.strip()
+    )
+
     existing_sm = get_site_master_path()
     if existing_sm:
         st.success(f"Site Master found: `{os.path.basename(existing_sm)}`")
@@ -278,10 +341,9 @@ with tab_admin:
 with tab_dashboard:
 
     # =========================
-    # SIDEBAR
+    # SIDEBAR - SCADA + Site + Mode
     # =========================
     st.sidebar.subheader("Upload SCADA File")
-
     uploaded_file = st.sidebar.file_uploader("Upload SCADA CSV", type=["csv"])
 
     if uploaded_file is None:
@@ -332,26 +394,49 @@ with tab_dashboard:
     with st.spinner("Loading SCADA file..."):
         df, wind_col, power_col, time_col, pitch_col = load_scada(uploaded_file)
 
+    if df.empty:
+        st.warning("SCADA file has no valid rows after parsing.")
+        st.stop()
+
     # =========================
-    # DATE FILTER
+    # DATE FILTER (Manual + Quick)
     # =========================
-    st.sidebar.markdown("Select Date Range")
+    st.sidebar.markdown("### Date Range")
 
-    max_date = df[time_col].max()
+    max_ts = df[time_col].max()
 
-    start_date = st.sidebar.date_input(
-        "Start Date",
-        value=(max_date - timedelta(days=15)).date() if pd.notna(max_date) else None
-    )
-    end_date = st.sidebar.date_input(
-        "End Date",
-        value=max_date.date() if pd.notna(max_date) else None
+    date_mode = st.sidebar.radio(
+        "Date Selection Mode",
+        ["Manual (Calendar)", "Quick Range"],
+        index=0
     )
 
-    start_date = pd.to_datetime(start_date)
-    end_date = pd.to_datetime(end_date) + pd.Timedelta(days=1)
+    if date_mode == "Manual (Calendar)":
+        default_start = (max_ts - timedelta(days=15)).date() if pd.notna(max_ts) else pd.Timestamp.today().date()
+        default_end = max_ts.date() if pd.notna(max_ts) else pd.Timestamp.today().date()
 
-    df = df[(df[time_col] >= start_date) & (df[time_col] <= end_date)]
+        start_date = st.sidebar.date_input("Start Date", value=default_start)
+        end_date = st.sidebar.date_input("End Date", value=default_end)
+
+        start_ts = pd.to_datetime(start_date)
+        end_ts_excl = pd.to_datetime(end_date) + pd.Timedelta(days=1)
+
+    else:
+        quick = st.sidebar.selectbox(
+            "Quick Range",
+            ["Today", "This Week", "This Month", "Last Week", "Last Month"]
+        )
+        start_ts, end_ts_excl = get_quick_date_range(quick, max_ts)
+
+    # Apply filter
+    df = df[(df[time_col] >= start_ts) & (df[time_col] < end_ts_excl)]
+
+    applied_end_inclusive = (end_ts_excl - pd.Timedelta(days=1)).date()
+    st.sidebar.caption(f"Applied Range: {start_ts.date()} → {applied_end_inclusive}")
+
+    if df.empty:
+        st.warning("No SCADA data available for the selected date range.")
+        st.stop()
 
     # =========================
     # HEADER
@@ -366,7 +451,7 @@ with tab_dashboard:
         f"{capacity_per_turbine} MW Each | "
         f"Total: {round(total_capacity, 2)} MW"
     )
-    st.markdown(f"Date Range: {start_date.date()} → {end_date.date()}")
+    st.markdown(f"Date Range: {start_ts.date()} → {applied_end_inclusive}")
 
     # =========================
     # LOAD REFERENCE
@@ -599,7 +684,7 @@ with tab_dashboard:
 
         pdf.setFont("Helvetica", 10)
         pdf.drawString(170, height - 60, f"Site: {site}")
-        pdf.drawString(170, height - 75, f"Date Range: {start_date.date()} to {end_date.date()}")
+        pdf.drawString(170, height - 75, f"Date Range: {start_ts.date()} to {applied_end_inclusive}")
 
         y = height - 120
 
