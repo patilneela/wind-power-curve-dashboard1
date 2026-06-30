@@ -550,7 +550,7 @@ with tab_dashboard:
             y=df_t[power_col],
             mode="markers",
             marker=dict(size=3, opacity=0.4),
-            name="SCADA"
+            name="Scatter points"
         ))
 
         fig.add_trace(go.Scatter(
