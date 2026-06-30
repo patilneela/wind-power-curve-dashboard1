@@ -562,17 +562,17 @@ with tab_dashboard:
             name="Reference"
         ))
 
-        # 3) Actual last (top) - GREEN (thicker)
+        # 3) Actual last (top) - GREEN (thin)
         fig.add_trace(go.Scatter(
             x=merged["WindBin"],
             y=merged["AvgPower"],
             mode="lines+markers",
             line=dict(
-                width=6,    # <-- increase thickness (try 6 or 7)
+                width=2,    
                 color="green"
             ),
             marker=dict(
-                size=6,
+                size=3,
                 color="green"
             ),
             name="Actual"
