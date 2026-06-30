@@ -154,15 +154,6 @@ tab_dashboard, tab_admin = st.tabs(["Dashboard", "Site Add-on / Admin"])
 # ==========================================================
 with tab_admin:
     st.subheader("Site Add-on / Admin")
-    st.markdown(
-        """
-Use this tab when:
-- A new site is added (upload Site Master so new site shows in dropdown)
-- The reference Excel is updated or wrong (upload/replace it)
-- You uploaded wrong file (delete it and re-upload)
-        """.strip()
-    )
-
     st.divider()
 
     # ---- Reference Excel manager ----
@@ -214,16 +205,6 @@ Use this tab when:
 
     # ---- Site Master manager ----
     st.markdown("## 2) Site Master (site_master.xlsx / site_master.csv)")
-    st.markdown(
-        """
-Upload a Site Master file so you can add new sites without changing code.
-
-Recommended columns:
-- `Site`
-- `Capacity_MW`
-        """.strip()
-    )
-
     existing_sm = get_site_master_path()
     if existing_sm:
         st.success(f"Site Master found: `{os.path.basename(existing_sm)}`")
