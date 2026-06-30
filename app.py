@@ -89,12 +89,10 @@ def compute_preset_range(preset: str, today_ts: pd.Timestamp):
         return today_date, today_date
 
     if preset == "This Week":
-        # Monday -> today
         monday = today_date - timedelta(days=today_ts.weekday())
         return monday, today_date
 
     if preset == "Last Week":
-        # Previous Monday -> Previous Sunday
         this_monday = today_date - timedelta(days=today_ts.weekday())
         start = this_monday - timedelta(days=7)
         end = this_monday - timedelta(days=1)
@@ -116,7 +114,6 @@ def compute_preset_range(preset: str, today_ts: pd.Timestamp):
 # LOGO
 # =========================
 logo_path = os.path.join(BASE_DIR, "Envision.png")
-
 col1, col2, col3 = st.columns([1, 2, 1])
 with col2:
     if os.path.exists(logo_path):
@@ -223,7 +220,6 @@ with tab_admin:
     st.subheader("Site Add-on")
     st.divider()
 
-    # ---- Reference Excel manager ----
     st.markdown("## 1) Reference Excel (reference.xlsx)")
 
     if os.path.exists(REF_FILE_PATH):
@@ -270,7 +266,6 @@ with tab_admin:
 
     st.divider()
 
-    # ---- Site Master manager ----
     st.markdown("## 2) Site Master (site_master.xlsx / site_master.csv)")
 
     existing_sm = get_site_master_path()
@@ -344,9 +339,6 @@ with tab_admin:
 # ==========================================================
 with tab_dashboard:
 
-    # =========================
-    # SIDEBAR - SCADA + Site + Mode
-    # =========================
     st.sidebar.subheader("Upload SCADA File")
     uploaded_file = st.sidebar.file_uploader("Upload SCADA CSV", type=["csv"], key="scada_upload")
 
@@ -403,8 +395,7 @@ with tab_dashboard:
         st.stop()
 
     # =========================
-    # DATE FILTER (Single dropdown: Auto presets + Manual calendar)
-    # Day-wise filtering (ignore time)
+    # DATE FILTER (Single dropdown + Manual calendar)
     # =========================
     st.sidebar.markdown("### Date Range")
 
@@ -443,7 +434,7 @@ with tab_dashboard:
         else:
             start_day, end_day = rng
 
-    # Day-wise filter
+    # Day-wise filter (ignore time)
     df["_date_only"] = df[time_col].dt.date
     df = df[(df["_date_only"] >= start_day) & (df["_date_only"] <= end_day)]
     df = df.drop(columns=["_date_only"])
@@ -538,38 +529,60 @@ with tab_dashboard:
         return df_t, merged, avg_dev, std_dev
 
     # =========================
-    # PLOT GRAPH
+    # PLOT GRAPH (UPDATED COLORS + ORDER)
     # =========================
     def plot_graph(df_t, merged, title, dev):
-        color = "green" if -2 <= dev <= 2 else ("orange" if dev < -2 else "red")
+        title_color = "green" if -2 <= dev <= 2 else ("orange" if dev < -2 else "red")
 
         fig = go.Figure()
 
+        # 1) Scatter first (bottom)
         fig.add_trace(go.Scatter(
             x=df_t[wind_col],
             y=df_t[power_col],
             mode="markers",
-            marker=dict(size=3, opacity=0.4),
+            marker=dict(
+                size=4,
+                opacity=0.35,
+                color="rgba(30, 144, 255, 0.55)"
+            ),
             name="Scatter points"
         ))
 
-        fig.add_trace(go.Scatter(
-            x=merged["WindBin"],
-            y=merged["AvgPower"],
-            mode="lines+markers",
-            name="Actual"
-        ))
-
+        # 2) Reference second (middle)
         fig.add_trace(go.Scatter(
             x=merged["WindBin"],
             y=merged["RefPower"],
             mode="lines",
-            line=dict(dash="dash"),
+            line=dict(
+                dash="dash",
+                width=3,
+                color="red"
+            ),
             name="Reference"
         ))
 
+        # 3) Actual last (top) - GREEN
+        fig.add_trace(go.Scatter(
+            x=merged["WindBin"],
+            y=merged["AvgPower"],
+            mode="lines+markers",
+            line=dict(
+                width=4,
+                color="green"
+            ),
+            marker=dict(
+                size=6,
+                color="green"
+            ),
+            name="Actual"
+        ))
+
         fig.update_layout(
-            title=dict(text=f"{title} (Dev: {round(dev, 2)}%)", font=dict(color=color)),
+            title=dict(
+                text=f"{title} (Dev: {round(dev, 2)}%)",
+                font=dict(color=title_color)
+            ),
             xaxis_title="Wind Speed",
             yaxis_title="Power",
             height=500
