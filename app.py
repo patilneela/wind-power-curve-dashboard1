@@ -27,14 +27,16 @@ except Exception:
 # PATHS (same folder as app)
 # =========================
 BASE_DIR = os.path.dirname(__file__)
-REF_FILE_PATH = os.path.join(BASE_DIR, "reference.xlsx")        # Reference power curve file
-SITE_MASTER_PATH = os.path.join(BASE_DIR, "site_master.xlsx")   # Or CSV (we handle both)
+REF_FILE_PATH = os.path.join(BASE_DIR, "reference.xlsx")
+SITE_MASTER_XLSX = os.path.join(BASE_DIR, "site_master.xlsx")
+SITE_MASTER_CSV = os.path.join(BASE_DIR, "site_master.csv")
+
+BIN_SIZE = 0.5
 
 # =========================
 # LOGO
 # =========================
 logo_path = os.path.join(BASE_DIR, "Envision.png")
-
 col1, col2, col3 = st.columns([1, 2, 1])
 with col2:
     if os.path.exists(logo_path):
@@ -44,8 +46,6 @@ with col2:
 # TITLE
 # =========================
 st.title("Power Curve Analytics Report")
-
-BIN_SIZE = 0.5
 
 # =========================
 # DEFAULT SITE CAPACITY (fallback)
@@ -86,13 +86,15 @@ DEFAULT_SITE_CAPACITY = {
         "India_Hero_Doni"
     ]
 }
-REF_FILE = "India site Standard & Theoretical PC data 1234.xlsx"
 
-BIN_SIZE = 0.5
+def get_site_master_path():
+    """Return whichever site_master file exists."""
+    if os.path.exists(SITE_MASTER_XLSX):
+        return SITE_MASTER_XLSX
+    if os.path.exists(SITE_MASTER_CSV):
+        return SITE_MASTER_CSV
+    return None
 
-# =========================
-# LOAD SITE MASTER (optional)
-# =========================
 @st.cache_data
 def load_site_capacity():
     """
@@ -101,19 +103,18 @@ def load_site_capacity():
     Expected columns: Site, Capacity_MW (case-insensitive)
     """
     capacity = dict(DEFAULT_SITE_CAPACITY)
-
-    if not os.path.exists(SITE_MASTER_PATH):
+    path = get_site_master_path()
+    if path is None:
         return capacity
 
     try:
-        if SITE_MASTER_PATH.lower().endswith(".csv"):
-            sm = pd.read_csv(SITE_MASTER_PATH)
+        if path.lower().endswith(".csv"):
+            sm = pd.read_csv(path)
         else:
-            sm = pd.read_excel(SITE_MASTER_PATH)
+            sm = pd.read_excel(path)
 
         sm.columns = [c.strip() for c in sm.columns]
 
-        # allow flexible column names
         site_col = None
         cap_col = None
         for c in sm.columns:
@@ -141,7 +142,6 @@ def load_site_capacity():
         st.code(str(e))
         return capacity
 
-
 SITE_CAPACITY = load_site_capacity()
 
 # =========================
@@ -149,19 +149,29 @@ SITE_CAPACITY = load_site_capacity()
 # =========================
 tab_dashboard, tab_admin = st.tabs(["Dashboard", "Site Add-on / Admin"])
 
+# ==========================================================
+# TAB: ADMIN
+# ==========================================================
 with tab_admin:
     st.subheader("Site Add-on / Admin")
+    st.markdown(
+        """
+Use this tab when:
+- A new site is added (upload Site Master so new site shows in dropdown)
+- The reference Excel is updated or wrong (upload/replace it)
+- You uploaded wrong file (delete it and re-upload)
+        """.strip()
+    )
+
     st.divider()
 
-    # -------------------------
-    # Reference Excel manager
-    # -------------------------
-    st.markdown("## 1) Reference Excel (Power Curve Reference)")
+    # ---- Reference Excel manager ----
+    st.markdown("## 1) Reference Excel (reference.xlsx)")
 
     if os.path.exists(REF_FILE_PATH):
         st.success(f"Reference file found: `{os.path.basename(REF_FILE_PATH)}`")
     else:
-        st.warning("Reference file missing. Upload one to enable reference curve loading.")
+        st.warning("Reference file missing. Upload a reference Excel to enable power curve reference comparison.")
 
     ref_upload = st.file_uploader(
         "Upload / Replace Reference Excel (.xlsx)",
@@ -192,63 +202,75 @@ with tab_admin:
                 st.info("No reference file to delete.")
 
     if os.path.exists(REF_FILE_PATH):
-        with st.expander("Preview Reference Excel (first 30 rows)", expanded=False):
+        with st.expander("Preview reference.xlsx (first 30 rows)"):
             try:
                 tmp = pd.read_excel(REF_FILE_PATH, header=None)
                 st.dataframe(tmp.head(30), use_container_width=True)
             except Exception as e:
-                st.error("Unable to read reference Excel.")
+                st.error("Unable to read reference.xlsx")
                 st.code(str(e))
 
     st.divider()
 
-    # -------------------------
-    # Site master manager
-    # -------------------------
-    st.markdown("## 2) Site Master (Site + Capacity_MW)")
+    # ---- Site Master manager ----
+    st.markdown("## 2) Site Master (site_master.xlsx / site_master.csv)")
+    st.markdown(
+        """
+Upload a Site Master file so you can add new sites without changing code.
 
-    if os.path.exists(SITE_MASTER_PATH):
-        st.success(f"Site Master found: `{os.path.basename(SITE_MASTER_PATH)}`")
+Recommended columns:
+- `Site`
+- `Capacity_MW`
+        """.strip()
+    )
+
+    existing_sm = get_site_master_path()
+    if existing_sm:
+        st.success(f"Site Master found: `{os.path.basename(existing_sm)}`")
     else:
         st.info("No Site Master file found. Dashboard will use the hardcoded default site list.")
 
-    site_master_upload = st.file_uploader(
+    sm_upload = st.file_uploader(
         "Upload / Replace Site Master (.xlsx or .csv)",
         type=["xlsx", "csv"],
-        key="site_master_upload"
+        key="sm_upload"
     )
 
     c3, c4 = st.columns(2)
     with c3:
         if st.button("Save / Replace Site Master", type="primary"):
-            if site_master_upload is None:
+            if sm_upload is None:
                 st.error("Please choose a .xlsx or .csv file first.")
             else:
-                # save with the same name based on uploaded extension
-                ext = os.path.splitext(site_master_upload.name)[1].lower()
-                save_path = os.path.join(BASE_DIR, f"site_master{ext}")
+                ext = os.path.splitext(sm_upload.name)[1].lower()
+                if ext not in [".xlsx", ".csv"]:
+                    st.error("Only .xlsx or .csv supported.")
+                else:
+                    target = os.path.join(BASE_DIR, f"site_master{ext}")
 
-                # If previous site_master exists with different extension, remove it safely
-                for old in [os.path.join(BASE_DIR, "site_master.xlsx"),
-                            os.path.join(BASE_DIR, "site_master.csv")]:
-                    if old != save_path and os.path.exists(old):
-                        os.remove(old)
+                    # Remove other format if exists
+                    if target != SITE_MASTER_XLSX and os.path.exists(SITE_MASTER_XLSX):
+                        os.remove(SITE_MASTER_XLSX)
+                    if target != SITE_MASTER_CSV and os.path.exists(SITE_MASTER_CSV):
+                        os.remove(SITE_MASTER_CSV)
 
-                with open(save_path, "wb") as f:
-                    f.write(site_master_upload.getbuffer())
+                    with open(target, "wb") as f:
+                        f.write(sm_upload.getbuffer())
 
-                st.success(f"Site Master saved as `{os.path.basename(save_path)}`")
-                st.cache_data.clear()
-                st.rerun()
+                    st.success(f"Site Master saved as `{os.path.basename(target)}`")
+                    st.cache_data.clear()
+                    st.rerun()
 
     with c4:
         if st.button("Delete Site Master"):
             deleted = False
-            for p in [os.path.join(BASE_DIR, "site_master.xlsx"),
-                      os.path.join(BASE_DIR, "site_master.csv")]:
-                if os.path.exists(p):
-                    os.remove(p)
-                    deleted = True
+            if os.path.exists(SITE_MASTER_XLSX):
+                os.remove(SITE_MASTER_XLSX)
+                deleted = True
+            if os.path.exists(SITE_MASTER_CSV):
+                os.remove(SITE_MASTER_CSV)
+                deleted = True
+
             if deleted:
                 st.success("Site Master deleted.")
                 st.cache_data.clear()
@@ -256,15 +278,9 @@ with tab_admin:
             else:
                 st.info("No Site Master file to delete.")
 
-    # show preview if exists (either xlsx or csv)
-    existing_sm = None
-    if os.path.exists(os.path.join(BASE_DIR, "site_master.xlsx")):
-        existing_sm = os.path.join(BASE_DIR, "site_master.xlsx")
-    elif os.path.exists(os.path.join(BASE_DIR, "site_master.csv")):
-        existing_sm = os.path.join(BASE_DIR, "site_master.csv")
-
+    existing_sm = get_site_master_path()
     if existing_sm:
-        with st.expander("Preview Site Master", expanded=False):
+        with st.expander("Preview Site Master"):
             try:
                 if existing_sm.endswith(".csv"):
                     sm_df = pd.read_csv(existing_sm)
@@ -276,7 +292,7 @@ with tab_admin:
                 st.code(str(e))
 
 # ==========================================================
-# TAB 1: DASHBOARD
+# TAB: DASHBOARD
 # ==========================================================
 with tab_dashboard:
 
@@ -285,29 +301,18 @@ with tab_dashboard:
     # =========================
     st.sidebar.subheader("Upload SCADA File")
 
-    uploaded_file = st.sidebar.file_uploader(
-        "Upload SCADA CSV",
-        type=["csv"]
-    )
+    uploaded_file = st.sidebar.file_uploader("Upload SCADA CSV", type=["csv"])
 
     if uploaded_file is None:
         st.warning("Please upload SCADA file")
         st.stop()
 
-    site = st.sidebar.selectbox(
-        "Select Site",
-        list(SITE_CAPACITY.keys())
-    )
-
-    mode = st.sidebar.radio(
-        "Select View",
-        ["Single Turbine", "Compare Turbines", "Show All Turbines"]
-    )
-
-    # Reference must exist for comparison
     if not os.path.exists(REF_FILE_PATH):
-        st.error("Reference Excel is missing. Upload it in the 'Site Add-on / Admin' tab.")
+        st.error("Reference Excel is missing. Upload `reference.xlsx` in the Admin tab.")
         st.stop()
+
+    site = st.sidebar.selectbox("Select Site", list(SITE_CAPACITY.keys()))
+    mode = st.sidebar.radio("Select View", ["Single Turbine", "Compare Turbines", "Show All Turbines"])
 
     # =========================
     # LOAD SCADA
@@ -321,106 +326,51 @@ with tab_dashboard:
             low_memory=False,
             engine="c"
         )
-        df = pd.concat(chunks, ignore_index=True)
-        df.columns = df.columns.str.strip()
+        df_local = pd.concat(chunks, ignore_index=True)
+        df_local.columns = df_local.columns.str.strip()
 
-        if "Name" not in df.columns:
-            st.error("SCADA CSV must contain a 'Name' column (turbine name).")
+        if "Name" not in df_local.columns:
+            st.error("SCADA CSV must contain a 'Name' column for turbine identifier.")
             st.stop()
 
-        wind_col = [c for c in df.columns if "wind" in c.lower()][0]
-        power_col = [c for c in df.columns if "power" in c.lower() or "active" in c.lower()][0]
-        time_col = [c for c in df.columns if "time" in c.lower()][0]
-        pitch_col = [c for c in df.columns if "pitch" in c.lower()][0]
+        wind_col = [c for c in df_local.columns if "wind" in c.lower()][0]
+        power_col = [c for c in df_local.columns if "power" in c.lower() or "active" in c.lower()][0]
+        time_col = [c for c in df_local.columns if "time" in c.lower()][0]
+        pitch_col = [c for c in df_local.columns if "pitch" in c.lower()][0]
 
-        df[time_col] = pd.to_datetime(df[time_col], errors="coerce")
-        df[wind_col] = pd.to_numeric(df[wind_col], errors="coerce")
-        df[power_col] = pd.to_numeric(df[power_col], errors="coerce")
-        df[pitch_col] = pd.to_numeric(df[pitch_col], errors="coerce")
+        df_local[time_col] = pd.to_datetime(df_local[time_col], errors="coerce")
+        df_local[wind_col] = pd.to_numeric(df_local[wind_col], errors="coerce")
+        df_local[power_col] = pd.to_numeric(df_local[power_col], errors="coerce")
+        df_local[pitch_col] = pd.to_numeric(df_local[pitch_col], errors="coerce")
 
-        df = df.dropna(subset=[wind_col, power_col, time_col, pitch_col])
-        df["Name"] = df["Name"].astype(str).str.strip()
+        df_local = df_local.dropna(subset=[wind_col, power_col, time_col, pitch_col])
+        df_local["Name"] = df_local["Name"].astype(str).str.strip()
 
-        return df, wind_col, power_col, time_col, pitch_col
+        return df_local, wind_col, power_col, time_col, pitch_col
 
     with st.spinner("Loading SCADA file..."):
         df, wind_col, power_col, time_col, pitch_col = load_scada(uploaded_file)
 
     # =========================
-    # DATE FILTER (Manual + Presets)
+    # DATE FILTER
     # =========================
-st.sidebar.markdown("### Date Range")
+    st.sidebar.markdown("Select Date Range")
 
-date_mode = st.sidebar.radio(
-    "Select Date Mode",
-    ["Manual", "Auto (Preset)"],
-    index=0
-)
+    max_date = df[time_col].max()
 
-preset = None
-if date_mode == "Auto (Preset)":
-    preset = st.sidebar.selectbox(
-        "Preset",
-        ["Today", "This week", "This month", "Last week", "Last month"],
-        index=1
-    )
-
-max_date = df[time_col].max()
-if pd.isna(max_date):
-    st.error("Could not parse timestamps from SCADA. Check the Time column format.")
-    st.stop()
-
-today = pd.Timestamp.today().normalize()
-
-def week_start(ts: pd.Timestamp) -> pd.Timestamp:
-    # Monday start of week
-    return (ts - pd.Timedelta(days=ts.weekday())).normalize()
-
-def month_start(ts: pd.Timestamp) -> pd.Timestamp:
-    return ts.replace(day=1).normalize()
-
-if date_mode == "Manual":
     start_date = st.sidebar.date_input(
         "Start Date",
-        value=(max_date - timedelta(days=15)).date()
+        value=(max_date - timedelta(days=15)).date() if pd.notna(max_date) else None
     )
     end_date = st.sidebar.date_input(
         "End Date",
-        value=max_date.date()
+        value=max_date.date() if pd.notna(max_date) else None
     )
-    start_dt = pd.to_datetime(start_date)
-    end_dt = pd.to_datetime(end_date) + pd.Timedelta(days=1)
 
-else:
-    if preset == "Today":
-        start_dt = today
-        end_dt = today + pd.Timedelta(days=1)
+    start_date = pd.to_datetime(start_date)
+    end_date = pd.to_datetime(end_date) + pd.Timedelta(days=1)
 
-    elif preset == "This week":
-        start_dt = week_start(today)
-        end_dt = today + pd.Timedelta(days=1)
-
-    elif preset == "Last week":
-        this_week = week_start(today)
-        start_dt = this_week - pd.Timedelta(days=7)
-        end_dt = this_week
-
-    elif preset == "This month":
-        start_dt = month_start(today)
-        end_dt = today + pd.Timedelta(days=1)
-
-    elif preset == "Last month":
-        this_month = month_start(today)
-        last_month_end = this_month
-        last_month_start = month_start(this_month - pd.Timedelta(days=1))
-        start_dt = last_month_start
-        end_dt = last_month_end
-
-# Apply filter
-df = df[(df[time_col] >= start_dt) & (df[time_col] < end_dt)]
-
-# Show chosen range on dashboard
-st.caption(f"Selected Date Range: {start_dt.date()} → {(end_dt - pd.Timedelta(days=1)).date()}")
+    df = df[(df[time_col] >= start_date) & (df[time_col] <= end_date)]
 
     # =========================
     # HEADER
@@ -435,7 +385,6 @@ st.caption(f"Selected Date Range: {start_dt.date()} → {(end_dt - pd.Timedelta(
         f"{capacity_per_turbine} MW Each | "
         f"Total: {round(total_capacity, 2)} MW"
     )
-
     st.markdown(f"Date Range: {start_date.date()} → {end_date.date()}")
 
     # =========================
@@ -448,7 +397,6 @@ st.caption(f"Selected Date Range: {start_dt.date()} → {(end_dt - pd.Timedelta(
         for r in range(ref_raw.shape[0]):
             for c in range(ref_raw.shape[1]):
                 cell = str(ref_raw.iloc[r, c])
-
                 if site_name.lower() in cell.lower():
                     ref = ref_raw.iloc[r + 2:r + 60, [c - 1, c + 3]].copy()
                     ref.columns = ["WindSpeed", "RefPower"]
@@ -463,7 +411,7 @@ st.caption(f"Selected Date Range: {start_dt.date()} → {(end_dt - pd.Timedelta(
 
                     return pd.DataFrame({"WindBin": wind_bins, "RefPower": ref_interp})
 
-        st.error("Site not found in reference file. Upload updated reference Excel in Admin tab.")
+        st.error("Site not found in reference.xlsx. Upload updated reference in Admin tab.")
         st.stop()
 
     ref_curve = load_reference(site)
@@ -493,8 +441,8 @@ st.caption(f"Selected Date Range: {start_dt.date()} → {(end_dt - pd.Timedelta(
         ).reset_index()
 
         merged = ref_curve.merge(actual, on="WindBin", how="left")
-
         valid = merged["AvgPower"].notna()
+
         if valid.sum() >= 7:
             merged.loc[valid, "AvgPower"] = savgol_filter(
                 merged.loc[valid, "AvgPower"],
@@ -511,11 +459,7 @@ st.caption(f"Selected Date Range: {start_dt.date()} → {(end_dt - pd.Timedelta(
     # PLOT GRAPH
     # =========================
     def plot_graph(df_t, merged, title, dev):
-        color = (
-            "green" if -2 <= dev <= 2 else
-            "orange" if dev < -2 else
-            "red"
-        )
+        color = "green" if -2 <= dev <= 2 else ("orange" if dev < -2 else "red")
 
         fig = go.Figure()
 
@@ -605,7 +549,6 @@ st.caption(f"Selected Date Range: {start_dt.date()} → {(end_dt - pd.Timedelta(
         with cols[i % 2]:
             fig = plot_graph(df_t, merged, t, dev)
             st.plotly_chart(fig, use_container_width=True)
-
             st.markdown("### Analysis")
             st.code(generate_comment(dev))
 
@@ -667,7 +610,6 @@ st.caption(f"Selected Date Range: {start_dt.date()} → {(end_dt - pd.Timedelta(
         pdf = canvas.Canvas(pdf_buffer, pagesize=landscape(A4))
         width, height = landscape(A4)
 
-        # HEADER
         if os.path.exists(logo_path):
             pdf.drawImage(logo_path, 30, height - 80, width=120, height=40)
 
@@ -676,7 +618,7 @@ st.caption(f"Selected Date Range: {start_dt.date()} → {(end_dt - pd.Timedelta(
 
         pdf.setFont("Helvetica", 10)
         pdf.drawString(170, height - 60, f"Site: {site}")
-        pdf.drawString(170, height - 75, f"Date Range: {start_dt.date()} to {(end_dt - pd.Timedelta(days=1)).date()}")
+        pdf.drawString(170, height - 75, f"Date Range: {start_date.date()} to {end_date.date()}")
 
         y = height - 120
 
@@ -702,7 +644,6 @@ st.caption(f"Selected Date Range: {start_dt.date()} → {(end_dt - pd.Timedelta(
                 except Exception:
                     pass
 
-        # RANKING PAGE
         pdf.showPage()
         pdf.setFont("Helvetica-Bold", 14)
         pdf.drawString(30, height - 40, "Turbine Ranking Summary")
