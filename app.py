@@ -47,10 +47,6 @@ def login_gate():
 
 login_gate()
 
-if st.sidebar.button("Logout"):
-    st.session_state.authenticated = False
-    st.rerun()
-
 # =========================
 # PAGE CONFIG
 # =========================
@@ -780,3 +776,8 @@ with tab_dashboard:
     except Exception as e:
         st.error("PDF generation failed")
         st.code(str(e))
+        
+        
+    if st.sidebar.button("Logout"):
+    st.session_state.authenticated = False
+    st.rerun()
