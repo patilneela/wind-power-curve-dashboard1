@@ -12,6 +12,46 @@ from reportlab.pdfgen import canvas
 from reportlab.lib.utils import ImageReader
 
 # =========================
+# SIMPLE LOCK (single user)
+# =========================
+def login_gate():
+    if "authenticated" not in st.session_state:
+        st.session_state.authenticated = False
+
+    # already logged in
+    if st.session_state.authenticated:
+        return
+
+    st.title("Login Required")
+
+    # Login form
+    with st.form("login_form"):
+        username = st.text_input("Username")
+        password = st.text_input("Password", type="password")
+        submitted = st.form_submit_button("Login")
+
+    if submitted:
+        try:
+            cfg = st.secrets["auth"]
+            ok = (username == cfg["username"]) and (password == cfg["password"])
+        except Exception:
+            ok = False
+
+        if ok:
+            st.session_state.authenticated = True
+            st.rerun()
+        else:
+            st.error("Invalid username or password")
+
+    st.stop()
+
+login_gate()
+
+if st.sidebar.button("Logout"):
+    st.session_state.authenticated = False
+    st.rerun()
+
+# =========================
 # PAGE CONFIG
 # =========================
 st.set_page_config(layout="wide")
