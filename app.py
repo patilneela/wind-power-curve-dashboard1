@@ -23,24 +23,19 @@ def login_gate():
     if "authenticated" not in st.session_state:
         st.session_state.authenticated = False
 
-    # already logged in
     if st.session_state.authenticated:
         return
 
     st.title("Login Required")
 
-    # Login form
-    with st.form("login_form"):
-        username = st.text_input("Username")
-        password = st.text_input("Password", type="password")
+    with st.form("login_form", clear_on_submit=False):
+        username = st.text_input("Username", key="login_username")
+        password = st.text_input("Password", type="password", key="login_password")
         submitted = st.form_submit_button("Login")
 
     if submitted:
-        try:
-            cfg = st.secrets["auth"]
-            ok = (username == cfg["username"]) and (password == cfg["password"])
-        except Exception:
-            ok = False
+        cfg = st.secrets.get("auth", {})
+        ok = (username == cfg.get("username")) and (password == cfg.get("password"))
 
         if ok:
             st.session_state.authenticated = True
@@ -52,10 +47,9 @@ def login_gate():
 
 login_gate()
 
-if st.sidebar.button("Logout"):
+if st.sidebar.button("Logout", key="logout_btn"):
     st.session_state.authenticated = False
     st.rerun()
-
 
 # SAFE KALEIDO CHECK
 try:
@@ -84,46 +78,39 @@ def get_site_master_path():
         return SITE_MASTER_CSV
     return None
 
-def get_quick_date_range(option: str, anchor_ts: pd.Timestamp):
+def compute_preset_range(preset: str, today_ts: pd.Timestamp):
     """
-    Returns (start_ts, end_ts_exclusive).
-    end_ts_exclusive is next-day boundary (exclusive end).
-    Uses anchor_ts (max timestamp in SCADA) as "today" reference.
+    Returns (start_day, end_day) as python dates, inclusive.
+    Based on real "today".
     """
-    if pd.isna(anchor_ts):
-        anchor_ts = pd.Timestamp.today()
+    today_date = today_ts.normalize().date()
 
-    anchor_date = anchor_ts.normalize()
+    if preset == "Today":
+        return today_date, today_date
 
-    if option == "Today":
-        start = anchor_date
-        end_excl = anchor_date + pd.Timedelta(days=1)
+    if preset == "This Week":
+        # Monday -> today
+        monday = today_date - timedelta(days=today_ts.weekday())
+        return monday, today_date
 
-    elif option == "This Week":
-        # Monday -> Today
-        start = anchor_date - pd.Timedelta(days=anchor_date.weekday())
-        end_excl = anchor_date + pd.Timedelta(days=1)
+    if preset == "Last Week":
+        # Previous Monday -> Previous Sunday
+        this_monday = today_date - timedelta(days=today_ts.weekday())
+        start = this_monday - timedelta(days=7)
+        end = this_monday - timedelta(days=1)
+        return start, end
 
-    elif option == "Last Week":
-        this_monday = anchor_date - pd.Timedelta(days=anchor_date.weekday())
-        start = this_monday - pd.Timedelta(days=7)
-        end_excl = this_monday
+    if preset == "This Month":
+        start = today_date.replace(day=1)
+        return start, today_date
 
-    elif option == "This Month":
-        start = anchor_date.replace(day=1)
-        end_excl = anchor_date + pd.Timedelta(days=1)
-
-    elif option == "Last Month":
-        first_this_month = anchor_date.replace(day=1)
-        last_month_end = first_this_month - pd.Timedelta(days=1)
+    if preset == "Last Month":
+        first_this_month = today_date.replace(day=1)
+        last_month_end = first_this_month - timedelta(days=1)
         start = last_month_end.replace(day=1)
-        end_excl = first_this_month
+        return start, last_month_end
 
-    else:
-        start = anchor_date - pd.Timedelta(days=15)
-        end_excl = anchor_date + pd.Timedelta(days=1)
-
-    return start, end_excl
+    return None
 
 # =========================
 # LOGO
@@ -182,11 +169,6 @@ DEFAULT_SITE_CAPACITY = {
 
 @st.cache_data
 def load_site_capacity():
-    """
-    Returns dict: {site_name: capacity_per_turbine_mw}
-    If site_master exists, it overrides/extends default list.
-    Expected columns: Site, Capacity_MW (case-insensitive)
-    """
     capacity = dict(DEFAULT_SITE_CAPACITY)
     path = get_site_master_path()
     if path is None:
@@ -315,7 +297,6 @@ with tab_admin:
                 else:
                     target = os.path.join(BASE_DIR, f"site_master{ext}")
 
-                    # Remove other format if exists
                     if target != SITE_MASTER_XLSX and os.path.exists(SITE_MASTER_XLSX):
                         os.remove(SITE_MASTER_XLSX)
                     if target != SITE_MASTER_CSV and os.path.exists(SITE_MASTER_CSV):
@@ -367,7 +348,7 @@ with tab_dashboard:
     # SIDEBAR - SCADA + Site + Mode
     # =========================
     st.sidebar.subheader("Upload SCADA File")
-    uploaded_file = st.sidebar.file_uploader("Upload SCADA CSV", type=["csv"])
+    uploaded_file = st.sidebar.file_uploader("Upload SCADA CSV", type=["csv"], key="scada_upload")
 
     if uploaded_file is None:
         st.warning("Please upload SCADA file")
@@ -377,8 +358,8 @@ with tab_dashboard:
         st.error("Reference Excel is missing. Upload `reference.xlsx` in the Admin tab.")
         st.stop()
 
-    site = st.sidebar.selectbox("Select Site", list(SITE_CAPACITY.keys()))
-    mode = st.sidebar.radio("Select View", ["Single Turbine", "Compare Turbines", "Show All Turbines"])
+    site = st.sidebar.selectbox("Select Site", list(SITE_CAPACITY.keys()), key="site_select")
+    mode = st.sidebar.radio("Select View", ["Single Turbine", "Compare Turbines", "Show All Turbines"], key="mode_radio")
 
     # =========================
     # LOAD SCADA
@@ -422,40 +403,52 @@ with tab_dashboard:
         st.stop()
 
     # =========================
-    # DATE FILTER (Manual + Quick)
+    # DATE FILTER (Single dropdown: Auto presets + Manual calendar)
+    # Day-wise filtering (ignore time)
     # =========================
     st.sidebar.markdown("### Date Range")
 
     max_ts = df[time_col].max()
+    base_date = max_ts.normalize().date() if pd.notna(max_ts) else pd.Timestamp.today().date()
 
-    date_mode = st.sidebar.radio(
-        "Date Selection Mode",
-        ["Manual (Calendar)", "Quick Range"],
-        index=0
+    DEFAULT_START = base_date - timedelta(days=15)
+    DEFAULT_END = base_date
+
+    if "manual_start_date" not in st.session_state:
+        st.session_state.manual_start_date = DEFAULT_START
+    if "manual_end_date" not in st.session_state:
+        st.session_state.manual_end_date = DEFAULT_END
+
+    date_option = st.sidebar.selectbox(
+        "Date Option",
+        ["Clear", "Today", "This Week", "This Month", "Last Week", "Last Month", "Manual (Calendar)"],
+        key="date_option"
     )
 
-    if date_mode == "Manual (Calendar)":
-        default_start = (max_ts - timedelta(days=15)).date() if pd.notna(max_ts) else pd.Timestamp.today().date()
-        default_end = max_ts.date() if pd.notna(max_ts) else pd.Timestamp.today().date()
+    if date_option == "Manual (Calendar)":
+        st.sidebar.markdown("#### Manual Selection")
+        start_day = st.sidebar.date_input("Start Date", value=st.session_state.manual_start_date, key="manual_start_date")
+        end_day = st.sidebar.date_input("End Date", value=st.session_state.manual_end_date, key="manual_end_date")
 
-        start_date = st.sidebar.date_input("Start Date", value=default_start)
-        end_date = st.sidebar.date_input("End Date", value=default_end)
-
-        start_ts = pd.to_datetime(start_date)
-        end_ts_excl = pd.to_datetime(end_date) + pd.Timedelta(days=1)
+    elif date_option == "Clear":
+        st.session_state.manual_start_date = DEFAULT_START
+        st.session_state.manual_end_date = DEFAULT_END
+        start_day = DEFAULT_START
+        end_day = DEFAULT_END
 
     else:
-        quick = st.sidebar.selectbox(
-            "Quick Range",
-            ["Today", "This Week", "This Month", "Last Week", "Last Month"]
-        )
-        start_ts, end_ts_excl = get_quick_date_range(quick, max_ts)
+        rng = compute_preset_range(date_option, pd.Timestamp.today())
+        if rng is None:
+            start_day, end_day = DEFAULT_START, DEFAULT_END
+        else:
+            start_day, end_day = rng
 
-    # Apply filter
-    df = df[(df[time_col] >= start_ts) & (df[time_col] < end_ts_excl)]
+    # Day-wise filter
+    df["_date_only"] = df[time_col].dt.date
+    df = df[(df["_date_only"] >= start_day) & (df["_date_only"] <= end_day)]
+    df = df.drop(columns=["_date_only"])
 
-    applied_end_inclusive = (end_ts_excl - pd.Timedelta(days=1)).date()
-    st.sidebar.caption(f"Applied Range: {start_ts.date()} → {applied_end_inclusive}")
+    st.sidebar.caption(f"Applied Range: {start_day} → {end_day}")
 
     if df.empty:
         st.warning("No SCADA data available for the selected date range.")
@@ -474,7 +467,7 @@ with tab_dashboard:
         f"{capacity_per_turbine} MW Each | "
         f"Total: {round(total_capacity, 2)} MW"
     )
-    st.markdown(f"Date Range: {start_ts.date()} → {applied_end_inclusive}")
+    st.markdown(f"Date Range: {start_day} → {end_day}")
 
     # =========================
     # LOAD REFERENCE
@@ -614,9 +607,9 @@ with tab_dashboard:
     turbines = df["Name"].unique()
 
     if mode == "Single Turbine":
-        turbines_to_show = [st.sidebar.selectbox("Select Turbine", turbines)]
+        turbines_to_show = [st.sidebar.selectbox("Select Turbine", turbines, key="single_turbine")]
     elif mode == "Compare Turbines":
-        turbines_to_show = st.sidebar.multiselect("Select Turbines", turbines)
+        turbines_to_show = st.sidebar.multiselect("Select Turbines", turbines, key="compare_turbines")
     else:
         turbines_to_show = turbines
 
@@ -707,7 +700,7 @@ with tab_dashboard:
 
         pdf.setFont("Helvetica", 10)
         pdf.drawString(170, height - 60, f"Site: {site}")
-        pdf.drawString(170, height - 75, f"Date Range: {start_ts.date()} to {applied_end_inclusive}")
+        pdf.drawString(170, height - 75, f"Date Range: {start_day} to {end_day}")
 
         y = height - 120
 
